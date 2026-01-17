@@ -3,6 +3,7 @@ import type { EntryPublic } from "./api";
 
 export type View = "login" | "setup" | "dashboard";
 
+// App-level view state derived from vault lifecycle (locked/setup/unlocked).
 export const view = writable<View>("login");
 export const isLocked = writable<boolean>(true);
 export const entries = writable<EntryPublic[]>([]);

@@ -75,7 +75,7 @@ This document describes the security model, cryptographic choices, threat model,
 **5. Weak Master Passwords**
 - **Scenario**: User chooses easily guessable password (e.g., "password123")
 - **Reality**: Argon2id slows brute force but cannot prevent weak password choices
-- **Mitigation**: Minimum 10-character requirement (enforced), password strength feedback (future feature)
+- **Mitigation**: Minimum 10-character requirement in the UI, password strength feedback (future feature)
 
 **6. Master Password Recovery**
 - **Scenario**: User forgets master password
@@ -168,7 +168,7 @@ let master = Zeroizing::new(master_password);
 ### Session Management
 
 **Auto-Lock**:
-- **Trigger**: 5 minutes of inactivity (no mouse/keyboard events)
+- **Trigger**: 5 minutes of inactivity (frontend heartbeats on input)
 - **Polling**: Background thread checks every 10 seconds
 - **Action**: Clears session (key + entries) from memory
 - **Recovery**: None (requires re-entering master password)
@@ -276,5 +276,4 @@ If you discover a security vulnerability in The Organizer:
 
 ---
 
-**Last Updated**: 2026-01-17
 **Version**: 0.1.0
