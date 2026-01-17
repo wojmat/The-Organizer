@@ -254,14 +254,6 @@ let master = Zeroizing::new(master_password);
 
 If you discover a security vulnerability in The Organizer:
 
-### DO:
-1. **Email**: security@example.com (replace with actual contact)
-2. **Include**:
-   - Detailed description of the vulnerability
-   - Steps to reproduce
-   - Potential impact
-3. **Wait**: Give us 90 days to fix before public disclosure
-
 ### DON'T:
 - Publicly disclose before we've had time to fix it
 - Exploit beyond proof-of-concept testing
