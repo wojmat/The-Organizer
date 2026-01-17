@@ -18,6 +18,8 @@ A **local, zero-knowledge encrypted password manager** built as a secure desktop
 - ✅ **Memory safety** - Sensitive data zeroized from memory when locked
 - ✅ **Cross-platform** - Windows, macOS, Linux support
 - ✅ **Offline-first** - No network access, all data stored locally
+- ✅ **Master password rotation** - Change master password without recreating the vault
+- ✅ **Encrypted backups** - Import/export vault backups using your master password
 
 ---
 
@@ -133,7 +135,21 @@ To use a stored password:
 1. Click "Delete" on any entry
 2. Confirm the deletion (this action cannot be undone)
 
-### 6. Lock the Vault
+### 6. Rotate Master Password
+
+1. Open the backup/maintenance panel in the dashboard
+2. Enter your current master password
+3. Choose a new master password and confirm
+4. Save to re-encrypt the vault with a fresh salt and key
+
+### 7. Import/Export Encrypted Backups
+
+1. In the dashboard, enter a file path for export
+2. Click **Export** to write an encrypted backup
+3. For import, provide the backup path and master password used for that backup
+4. Click **Import** to replace the local vault with the backup contents
+
+### 8. Lock the Vault
 
 - Click the "Lock" button in the header to manually lock
 - The vault also auto-locks after 5 minutes of inactivity
@@ -282,8 +298,8 @@ User Input → Svelte UI → Tauri IPC → Rust Backend → Vault File
 - [x] Clipboard auto-clear
 - [x] Rate limiting on unlock attempts
 - [x] Vault format versioning
-- [ ] Master password change
-- [ ] Import/export (encrypted backup)
+- [x] Master password change
+- [x] Import/export (encrypted backup)
 - [ ] Password generator
 - [ ] Password strength meter
 - [ ] Audit logging
