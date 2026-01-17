@@ -165,6 +165,53 @@ pub fn create_vault(app: AppHandle, state: State<'_, AppState>, master_password:
 }
 
 #[tauri::command]
+pub fn change_master_password(
+  app: AppHandle,
+  state: State<'_, AppState>,
+  current_password: String,
+  new_password: String,
+) -> Result<(), String> {
+  state.heartbeat();
+
+  let current = Zeroizing::new(current_password);
+  let new_master = Zeroizing::new(new_password);
+
+  let path = resolve_vault_path(&app, state.inner())?;
+
+  let mut session_guard = state
+    .session
+    .lock()
+    .map_err(|_| "session mutex poisoned".to_string())?;
+  let session = session_guard.as_mut().ok_or_else(|| "vault is locked".to_string())?;
+
+  let entries_guard = state
+    .entries
+    .lock()
+    .map_err(|_| "entries mutex poisoned".to_string())?;
+  let entries = entries_guard.as_ref().ok_or_else(|| "vault is locked".to_string())?;
+
+  let mut derived = vault::derive_key(current.as_str(), &session.salt)
+    .map_err(|e| format!("kdf: {:?}", e))?;
+
+  if derived != *session.key_bytes() {
+    derived.zeroize();
+    return Err("current master password is incorrect".to_string());
+  }
+  derived.zeroize();
+
+  let new_salt = vault::generate_salt();
+  let new_key = vault::derive_key(new_master.as_str(), &new_salt)
+    .map_err(|e| format!("kdf: {:?}", e))?;
+
+  vault::save_with_key(&path, entries, &new_salt, &new_key).map_err(|e| format!("save: {:?}", e))?;
+
+  session.salt = new_salt;
+  session.key = Zeroizing::new(new_key);
+
+  Ok(())
+}
+
+#[tauri::command]
 pub fn unlock_vault(app: AppHandle, state: State<'_, AppState>, master_password: String) -> Result<(), String> {
   // Check rate limiting before attempting unlock
   {
@@ -228,6 +275,72 @@ pub fn unlock_vault(app: AppHandle, state: State<'_, AppState>, master_password:
       }
     }
   }
+}
+
+#[tauri::command]
+pub fn export_vault(state: State<'_, AppState>, path: String) -> Result<(), String> {
+  state.heartbeat();
+
+  if path.trim().is_empty() {
+    return Err("export path is required".to_string());
+  }
+
+  let export_path = PathBuf::from(path);
+  if let Some(parent) = export_path.parent() {
+    fs::create_dir_all(parent).map_err(|e| format!("create_dir_all failed: {e}"))?;
+  }
+
+  with_unlocked(state.inner(), |entries, session| {
+    vault::save_with_key(&export_path, entries, &session.salt, session.key_bytes())
+      .map_err(|e| format!("export: {:?}", e))?;
+    Ok(())
+  })
+}
+
+#[tauri::command]
+pub fn import_vault(
+  app: AppHandle,
+  state: State<'_, AppState>,
+  path: String,
+  master_password: String,
+) -> Result<(), String> {
+  state.heartbeat();
+
+  if path.trim().is_empty() {
+    return Err("import path is required".to_string());
+  }
+
+  let import_path = PathBuf::from(path);
+  let master = Zeroizing::new(master_password);
+
+  let (entries, _salt, mut import_key) = vault::load_with_password(&import_path, master.as_str())
+    .map_err(|e| format!("load: {:?}", e))?;
+
+  import_key.zeroize();
+
+  let new_salt = vault::generate_salt();
+  let new_key = vault::derive_key(master.as_str(), &new_salt)
+    .map_err(|e| format!("kdf: {:?}", e))?;
+
+  let vault_path = resolve_vault_path(&app, state.inner())?;
+  vault::save_with_key(&vault_path, &entries, &new_salt, &new_key).map_err(|e| format!("save: {:?}", e))?;
+
+  {
+    let mut s = state
+      .session
+      .lock()
+      .map_err(|_| "session mutex poisoned".to_string())?;
+    *s = Some(VaultSession::new(new_salt, new_key));
+  }
+  {
+    let mut e = state
+      .entries
+      .lock()
+      .map_err(|_| "entries mutex poisoned".to_string())?;
+    *e = Some(entries);
+  }
+
+  Ok(())
 }
 
 #[tauri::command]

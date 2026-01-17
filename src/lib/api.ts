@@ -65,6 +65,42 @@ export async function unlockVault(masterPassword: string): Promise<void> {
   }
 }
 
+export async function changeMasterPassword(
+  currentPassword: string,
+  newPassword: string
+): Promise<void> {
+  try {
+    await invoke("change_master_password", {
+      currentPassword,
+      current_password: currentPassword,
+      newPassword,
+      new_password: newPassword
+    });
+  } catch (e) {
+    throw new Error(asStringError(e));
+  }
+}
+
+export async function exportVault(path: string): Promise<void> {
+  try {
+    await invoke("export_vault", { path });
+  } catch (e) {
+    throw new Error(asStringError(e));
+  }
+}
+
+export async function importVault(path: string, masterPassword: string): Promise<void> {
+  try {
+    await invoke("import_vault", {
+      path,
+      masterPassword,
+      master_password: masterPassword
+    });
+  } catch (e) {
+    throw new Error(asStringError(e));
+  }
+}
+
 export async function getEntries(): Promise<EntryPublic[]> {
   try {
     return await invoke<EntryPublic[]>("get_entries");
