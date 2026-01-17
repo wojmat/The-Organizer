@@ -29,6 +29,7 @@ The frontend never receives decrypted passwords from the backend. Clipboard copy
 - Stores unlocked entries and the derived key in memory while the session is active.
 - Enforces lockout after repeated failed unlock attempts.
 - Clears sensitive memory on lock (best-effort via `zeroize`).
+- Re-encrypts the vault for master password changes and encrypted backup import/export.
 
 ## Vault File Format
 

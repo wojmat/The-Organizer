@@ -215,7 +215,10 @@ pub fn change_master_password(
 pub fn unlock_vault(app: AppHandle, state: State<'_, AppState>, master_password: String) -> Result<(), String> {
   // Check rate limiting before attempting unlock
   {
-    let tracker = state.failed_attempts.lock().map_err(|_| "rate limit mutex poisoned".to_string())?;
+    let mut tracker = state
+      .failed_attempts
+      .lock()
+      .map_err(|_| "rate limit mutex poisoned".to_string())?;
     if let Some(remaining_secs) = tracker.check_lockout() {
       return Err(format!(
         "Too many failed attempts. Please wait {} seconds before trying again.",

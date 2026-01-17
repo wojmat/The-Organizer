@@ -163,12 +163,17 @@ impl FailedAttemptTracker {
   }
 
   /// Checks if currently in lockout period. Returns remaining seconds if locked.
-  pub fn check_lockout(&self) -> Option<u64> {
+  ///
+  /// If the lockout has expired, resets the tracker so the user gets
+  /// a fresh set of attempts.
+  pub fn check_lockout(&mut self) -> Option<u64> {
     if let Some(until) = self.locked_until {
-      if Instant::now() < until {
-        let remaining = until.duration_since(Instant::now()).as_secs();
-        return Some(remaining);
+      let now = Instant::now();
+      if now < until {
+        return Some(until.duration_since(now).as_secs());
       }
+      self.count = 0;
+      self.locked_until = None;
     }
     None
   }

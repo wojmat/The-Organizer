@@ -200,6 +200,12 @@ let master = Zeroizing::new(master_password);
 - Legacy format supported (offsets adjusted for missing version byte)
 - Saves always use latest version
 
+### Master Password Rotation
+
+- Users can change the master password without recreating the vault.
+- Rotation re-encrypts the vault with a freshly generated salt and derived key.
+- The old derived key is zeroized after verification.
+
 ---
 
 ## Known Limitations
@@ -210,12 +216,6 @@ let master = Zeroizing::new(master_password);
 - **Risk**: If app crashes before thread runs (15 seconds), password persists indefinitely
 - **Mitigation**: None (cross-platform clipboard APIs don't support deferred clearing)
 - **Workaround**: Manually clear clipboard if app crashes
-
-### Password Change
-
-**Status**: Not implemented in v0.1.0
-- **Impact**: Cannot rotate master password without creating new vault
-- **Planned**: v0.2.0 will include `change_master_password` command
 
 ### Single-User, Single-Device
 
