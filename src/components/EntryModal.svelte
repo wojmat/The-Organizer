@@ -42,10 +42,10 @@
     try {
       await onCreate({
         title: title.trim(),
-        username,
+        username: username.trim(),
         password,
-        url,
-        notes
+        url: url.trim(),
+        notes: notes.trim()
       });
 
       // Clear sensitive input immediately after use.
@@ -53,7 +53,6 @@
       onCancel();
     } catch (e) {
       localError = (e as Error).message ?? String(e);
-      // Best-effort clear password even on failure.
       password = "";
     } finally {
       busy = false;
@@ -128,12 +127,17 @@
       </label>
 
       <label class="block">
-        <div class="mb-1 text-sm text-neutral-300">Notes</div>
+        <div class="mb-1 text-sm text-neutral-300">
+          Notes
+          <span class="ml-2 text-xs text-neutral-500">
+            (visible when you expand the row, and on desktop hover)
+          </span>
+        </div>
         <textarea
           class="min-h-24 w-full rounded-xl border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm outline-none focus:border-neutral-600"
           bind:value={notes}
           disabled={busy}
-        ></textarea>
+        />
       </label>
 
       <div class="flex items-center justify-end gap-2 pt-2">
