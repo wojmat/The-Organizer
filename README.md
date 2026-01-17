@@ -272,7 +272,6 @@ cargo clippy
 6. Push to the branch (`git push origin feature/amazing-feature`)
 7. Open a Pull Request
 
-**Security**: If you discover a security vulnerability, please email [security@example.com] (replace with a real contact) instead of opening a public issue.
 
 ---
 
