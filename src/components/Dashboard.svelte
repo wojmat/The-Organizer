@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import EntryModal from "./EntryModal.svelte";
+  import EntryRow from "./EntryRow.svelte";
   import { addEntry, copySecret, deleteEntry, getEntries, heartbeat } from "../lib/api";
   import { entries, setError } from "../lib/stores";
   import type { EntryInput, EntryPublic } from "../lib/api";
@@ -12,7 +13,7 @@
   let busy = false;
   let toast: string | null = null;
   let q = "";
-  let deleteConfirm: { id: string; title: string } | null = null;
+  let expandedId: string | null = null;
 
   function showToast(msg: string) {
     toast = msg;
@@ -27,7 +28,6 @@
       entries.set(list);
       setError(null);
     } catch {
-      // Most likely locked.
       onLocked();
     }
   }
@@ -39,6 +39,7 @@
   function filterList(list: EntryPublic[]) {
     const qq = q.trim().toLowerCase();
     if (!qq) return list;
+
     return list.filter((e) => {
       return (
         e.title.toLowerCase().includes(qq) ||
@@ -66,19 +67,13 @@
     }
   }
 
-  function requestDelete(id: string, title: string) {
-    deleteConfirm = { id, title };
-  }
-
-  async function confirmDelete() {
-    if (!deleteConfirm || busy) return;
-    const id = deleteConfirm.id;
-    deleteConfirm = null;
-
+  async function doDelete(id: string) {
+    if (busy) return;
     busy = true;
     try {
       onHeartbeat();
       await deleteEntry(id);
+      if (expandedId === id) expandedId = null;
       await refresh();
       showToast("Deleted.");
     } catch (e) {
@@ -89,17 +84,13 @@
     }
   }
 
-  function cancelDelete() {
-    deleteConfirm = null;
-  }
-
   async function doCopy(id: string) {
     if (busy) return;
     busy = true;
     try {
       onHeartbeat();
       await copySecret(id);
-      showToast("Copied to clipboard (clears in 15s).");
+      showToast("Copied to clipboard (clears in 30s).");
     } catch (e) {
       setError((e as Error).message ?? String(e));
     } finally {
@@ -113,15 +104,23 @@
   <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
     <div>
       <div class="text-lg font-semibold">Entries</div>
-      <div class="text-sm text-neutral-400">Passwords are decrypted only while unlocked.</div>
+      <div class="text-sm text-neutral-400">
+        Search filters the list locally (title, username, url, notes).
+      </div>
+      {#if $entries.length > 0}
+        <div class="mt-1 text-xs text-neutral-500">
+          Showing {visible.length} of {$entries.length}
+        </div>
+      {/if}
     </div>
 
     <div class="flex items-center gap-2">
       <input
-        class="w-full rounded-xl border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm outline-none focus:border-neutral-600 md:w-72"
-        placeholder="Search..."
+        class="w-full rounded-xl border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm outline-none focus:border-neutral-600 md:w-72 disabled:opacity-50"
+        placeholder={$entries.length === 0 ? "Search (add an entry first)" : "Search..."}
         bind:value={q}
         on:input={() => onHeartbeat()}
+        disabled={$entries.length === 0}
       />
       <button
         class="rounded-xl bg-neutral-100 px-3 py-2 text-sm font-semibold text-neutral-950 hover:bg-white disabled:opacity-50"
@@ -154,32 +153,17 @@
     <div class="overflow-hidden rounded-2xl border border-neutral-800">
       <div class="divide-y divide-neutral-800">
         {#each visible as e (e.id)}
-          <div class="flex flex-col gap-2 bg-neutral-950 px-4 py-3 md:flex-row md:items-center md:justify-between">
-            <div class="min-w-0">
-              <div class="truncate text-sm font-semibold">{e.title}</div>
-              <div class="truncate text-xs text-neutral-400">
-                {e.username}{#if e.url} - {e.url}{/if}
-              </div>
-            </div>
-
-            <div class="flex items-center gap-2">
-              <button
-                class="rounded-xl border border-neutral-800 px-3 py-1.5 text-sm hover:bg-neutral-900 disabled:opacity-50"
-                on:click={() => doCopy(e.id)}
-                disabled={busy}
-              >
-                Copy
-              </button>
-
-              <button
-                class="rounded-xl border border-neutral-800 px-3 py-1.5 text-sm hover:bg-neutral-900 disabled:opacity-50"
-                on:click={() => requestDelete(e.id, e.title)}
-                disabled={busy}
-              >
-                Delete
-              </button>
-            </div>
-          </div>
+          <EntryRow
+            entry={e}
+            busy={busy}
+            expanded={expandedId === e.id}
+            onHeartbeat={onHeartbeat}
+            onToggle={() => {
+              expandedId = expandedId === e.id ? null : e.id;
+            }}
+            onCopy={() => doCopy(e.id)}
+            onDelete={() => doDelete(e.id)}
+          />
         {/each}
       </div>
     </div>
@@ -193,41 +177,4 @@
     }}
     onCreate={doCreate}
   />
-{/if}
-
-{#if deleteConfirm}
-  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-    <div class="w-full max-w-md rounded-2xl border border-neutral-800 bg-neutral-950 shadow">
-      <div class="border-b border-neutral-800 px-5 py-4">
-        <div class="text-base font-semibold">Confirm Deletion</div>
-      </div>
-
-      <div class="px-5 py-4">
-        <p class="text-sm text-neutral-300">
-          Are you sure you want to permanently delete <strong class="text-neutral-100">"{deleteConfirm.title}"</strong>?
-        </p>
-        <p class="mt-2 text-sm text-neutral-400">
-          This action cannot be undone.
-        </p>
-      </div>
-
-      <div class="flex items-center justify-end gap-2 border-t border-neutral-800 px-5 py-4">
-        <button
-          class="rounded-xl border border-neutral-800 px-4 py-2 text-sm hover:bg-neutral-900 disabled:opacity-50"
-          on:click={cancelDelete}
-          disabled={busy}
-        >
-          Cancel
-        </button>
-
-        <button
-          class="rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
-          on:click={confirmDelete}
-          disabled={busy}
-        >
-          {#if busy}Deleting...{:else}Delete{/if}
-        </button>
-      </div>
-    </div>
-  </div>
 {/if}
