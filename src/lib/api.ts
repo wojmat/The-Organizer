@@ -6,6 +6,7 @@ export interface EntryPublic {
   username: string;
   url: string;
   notes: string;
+  // RFC 3339 timestamps serialized by the Rust backend (chrono DateTime<Utc>).
   created_at: string;
   updated_at: string;
 }
@@ -19,6 +20,7 @@ export interface EntryInput {
 }
 
 function asStringError(e: unknown): string {
+  // Normalize any thrown value into a stable string for UI messaging.
   if (typeof e === "string") return e;
   if (e && typeof e === "object" && "message" in e) return String((e as any).message);
   try {

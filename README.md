@@ -4,7 +4,7 @@ A **local, zero-knowledge encrypted password manager** built as a secure desktop
 
 **Version**: 0.1.0
 **License**: MIT (see [LICENSE](LICENSE))
-**Status**: Production-ready for personal use
+**Status**: Early-access for personal use (single-device, offline-first)
 
 ---
 
@@ -35,9 +35,10 @@ A **local, zero-knowledge encrypted password manager** built as a secure desktop
 - **Tailwind CSS** - Utility-first styling
 
 **Security**:
-- All encryption performed server-side (Rust backend)
-- Passwords never sent to frontend
-- Keys and plaintext zeroized after use
+- Encryption/decryption handled in the Rust backend via Tauri IPC
+- Passwords are never returned to the frontend (only provided when creating/unlocking)
+- Master password is used only for key derivation and never stored
+- Keys and plaintext are zeroized when the vault is locked (best-effort)
 - Vault format versioning for future-proofing
 
 ---
@@ -92,7 +93,7 @@ Installers will be generated in `src-tauri/target/release/bundle/`:
 
 When you first launch the app, you'll see the **Setup** screen:
 
-1. Enter a strong master password (minimum 10 characters)
+1. Enter a strong master password (minimum 10 characters enforced in the UI)
 2. Confirm the password
 3. Click "Create Vault"
 
@@ -141,10 +142,12 @@ To use a stored password:
 
 ## Data Storage
 
-**Vault Location**:
+**Vault Location** (Tauri app data directory):
 - **Windows**: `%APPDATA%\com.theorganizer.app\vault.dat`
 - **macOS**: `~/Library/Application Support/com.theorganizer.app/vault.dat`
 - **Linux**: `~/.local/share/com.theorganizer.app/vault.dat`
+
+Paths can vary by OS configuration. The app resolves the data directory at runtime.
 
 **Vault File Format**:
 ```
@@ -253,7 +256,7 @@ cargo clippy
 6. Push to the branch (`git push origin feature/amazing-feature`)
 7. Open a Pull Request
 
-**Security**: If you discover a security vulnerability, please email [security@example.com] instead of opening a public issue.
+**Security**: If you discover a security vulnerability, please email [security@example.com] (replace with a real contact) instead of opening a public issue.
 
 ---
 
