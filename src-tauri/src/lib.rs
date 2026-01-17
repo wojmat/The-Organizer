@@ -48,10 +48,13 @@ pub fn create_invoke_handler() -> impl Fn(tauri::ipc::Invoke<Wry>) -> bool + Sen
         commands::heartbeat,
         commands::lock_vault,
         commands::create_vault,
+        commands::change_master_password,
         commands::unlock_vault,
         commands::get_entries,
         commands::add_entry,
         commands::delete_entry,
-        commands::copy_secret
+        commands::copy_secret,
+        commands::export_vault,
+        commands::import_vault
     ]
 }
