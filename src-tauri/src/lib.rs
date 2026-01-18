@@ -35,6 +35,7 @@
 use tauri::Wry;
 
 pub mod commands;
+pub mod extension;
 pub mod models;
 pub mod vault;
 
@@ -56,6 +57,9 @@ pub fn create_invoke_handler() -> impl Fn(tauri::ipc::Invoke<Wry>) -> bool + Sen
         commands::delete_entry,
         commands::copy_secret,
         commands::export_vault,
-        commands::import_vault
+        commands::import_vault,
+        commands::get_extension_config,
+        commands::set_extension_enabled,
+        commands::rotate_extension_token
     ]
 }

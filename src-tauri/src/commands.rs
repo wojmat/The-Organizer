@@ -13,7 +13,8 @@
 //! - The vault key is stored in `VaultSession` and cleared on lock
 //! - All mutex access follows lock order: session → entries (prevents deadlocks)
 
-use crate::models::{AppState, Entry, VaultSession, VAULT_FILENAME};
+use crate::extension;
+use crate::models::{AppState, Entry, ExtensionConfig, VaultSession, VAULT_FILENAME};
 use crate::vault;
 use arboard::Clipboard;
 use serde::{Deserialize, Serialize};
@@ -23,6 +24,7 @@ use std::sync::{Mutex, MutexGuard};
 use std::thread;
 use std::time::Duration;
 use tauri::{AppHandle, Manager, State};
+use uuid::Uuid;
 use zeroize::{Zeroize, Zeroizing};
 
 /// Resolves the path to the vault file, caching it for subsequent calls.
@@ -461,4 +463,54 @@ pub fn copy_secret(state: State<'_, AppState>, id: String) -> Result<(), String>
   });
 
   Ok(())
+}
+
+#[tauri::command]
+pub fn get_extension_config(state: State<'_, AppState>) -> Result<ExtensionConfig, String> {
+  let config = lock_state(state.extension_config.as_ref(), "extension config")?;
+  Ok(config.clone())
+}
+
+#[tauri::command]
+pub fn set_extension_enabled(
+  app: AppHandle,
+  state: State<'_, AppState>,
+  enabled: bool,
+) -> Result<ExtensionConfig, String> {
+  let current = {
+    let config = lock_state(state.extension_config.as_ref(), "extension config")?;
+    config.clone()
+  };
+
+  let mut updated = current;
+  updated.enabled = enabled;
+  if updated.token.trim().is_empty() {
+    updated.token = Uuid::new_v4().to_string();
+  }
+
+  extension::save_config(&app, &updated)?;
+
+  let mut config = lock_state(state.extension_config.as_ref(), "extension config")?;
+  *config = updated.clone();
+  Ok(updated)
+}
+
+#[tauri::command]
+pub fn rotate_extension_token(
+  app: AppHandle,
+  state: State<'_, AppState>,
+) -> Result<ExtensionConfig, String> {
+  let current = {
+    let config = lock_state(state.extension_config.as_ref(), "extension config")?;
+    config.clone()
+  };
+
+  let mut updated = current;
+  updated.token = Uuid::new_v4().to_string();
+
+  extension::save_config(&app, &updated)?;
+
+  let mut config = lock_state(state.extension_config.as_ref(), "extension config")?;
+  *config = updated.clone();
+  Ok(updated)
 }

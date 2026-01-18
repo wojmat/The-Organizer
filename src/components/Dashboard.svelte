@@ -10,13 +10,16 @@
     copySecret,
     deleteEntry,
     exportVault,
+    getExtensionConfig,
     getEntries,
     heartbeat,
     importVault,
+    rotateExtensionToken,
+    setExtensionEnabled,
     updateEntry
   } from "../lib/api";
   import { entries, setError } from "../lib/stores";
-  import type { EntryInput, EntryPublic, EntryUpdateInput } from "../lib/api";
+  import type { EntryInput, EntryPublic, EntryUpdateInput, ExtensionConfig } from "../lib/api";
 
   export let onHeartbeat: () => void;
   export let onLocked: () => void;
@@ -52,6 +55,9 @@
 
   let passwordNotice: Notice | null = null;
   let backupNotice: Notice | null = null;
+  let extensionNotice: Notice | null = null;
+  let extensionConfig: ExtensionConfig | null = null;
+  let revealExtensionToken = false;
 
   type InteractionStats = {
     clicked: number;
@@ -125,12 +131,20 @@
     backupNotice = { message, tone };
   }
 
+  function setExtensionNotice(message: string, tone: NoticeTone = "info") {
+    extensionNotice = { message, tone };
+  }
+
   function clearPasswordNotice() {
     passwordNotice = null;
   }
 
   function clearBackupNotice() {
     backupNotice = null;
+  }
+
+  function clearExtensionNotice() {
+    extensionNotice = null;
   }
 
   async function refresh() {
@@ -150,8 +164,18 @@
     }
   }
 
+  async function loadExtensionConfig() {
+    try {
+      extensionConfig = await getExtensionConfig();
+      clearExtensionNotice();
+    } catch (e) {
+      setExtensionNotice(toErrorMessage(e), "error");
+    }
+  }
+
   onMount(() => {
     refresh();
+    loadExtensionConfig();
   });
 
   onDestroy(() => {
@@ -228,6 +252,8 @@
   }
 
   $: visible = sortEntries($entries, sortEpoch);
+  $: extensionEndpoint =
+    extensionConfig ? `http://127.0.0.1:${extensionConfig.port}` : "";
 
   async function doCreate(input: EntryInput) {
     await runWithBusy(async () => {
@@ -389,6 +415,46 @@
       }
     } catch (e) {
       setBackupNotice(toErrorMessage(e), "error");
+    }
+  }
+
+  async function updateExtensionAccess(enabled: boolean) {
+    clearExtensionNotice();
+    await runWithBusy(
+      async () => {
+        if (!extensionConfig) return;
+        extensionConfig = await setExtensionEnabled(enabled);
+        showToast(enabled ? "Browser extension enabled." : "Browser extension disabled.");
+      },
+      (e) => {
+        setExtensionNotice(toErrorMessage(e), "error");
+      }
+    );
+  }
+
+  async function doRotateExtensionToken() {
+    clearExtensionNotice();
+    await runWithBusy(
+      async () => {
+        if (!extensionConfig) return;
+        extensionConfig = await rotateExtensionToken();
+        revealExtensionToken = true;
+        showToast("Token rotated.");
+      },
+      (e) => {
+        setExtensionNotice(toErrorMessage(e), "error");
+      }
+    );
+  }
+
+  async function copyExtensionToken() {
+    if (!extensionConfig) return;
+    clearExtensionNotice();
+    try {
+      await navigator.clipboard.writeText(extensionConfig.token);
+      showToast("Token copied.");
+    } catch (e) {
+      setExtensionNotice(toErrorMessage(e), "error");
     }
   }
 </script>
@@ -652,6 +718,101 @@
               Import backup
             </button>
           </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="rounded-2xl border border-neutral-800 bg-neutral-900/20 p-6">
+    <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+      <div>
+        <div class="text-lg font-semibold">Browser extension</div>
+        <div class="text-sm text-neutral-400">
+          Connect the Chromium extension to autofill credentials from your unlocked vault.
+        </div>
+      </div>
+      <label class="flex items-center gap-2 text-sm text-neutral-300">
+        <input
+          class="h-4 w-4 accent-neutral-200"
+          type="checkbox"
+          checked={extensionConfig?.enabled ?? false}
+          disabled={busy || !extensionConfig}
+          on:change={(event) => updateExtensionAccess(event.currentTarget.checked)}
+        />
+        <span>{extensionConfig?.enabled ? "Enabled" : "Disabled"}</span>
+      </label>
+    </div>
+
+    {#if extensionNotice}
+      <div class={`mt-4 rounded-xl border px-3 py-2 text-xs ${NOTICE_CLASS[extensionNotice.tone]}`}>
+        {extensionNotice.message}
+      </div>
+    {/if}
+
+    <div class="mt-5 grid gap-6 lg:grid-cols-2">
+      <div class="space-y-3 rounded-2xl border border-neutral-800 bg-neutral-950/40 p-4">
+        <div class="text-sm font-semibold text-neutral-200">Connection details</div>
+        <div>
+          <div class="mb-1 text-xs text-neutral-400">Local API endpoint</div>
+          <input
+            class="w-full rounded-xl border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm text-neutral-300 outline-none"
+            readonly
+            value={extensionEndpoint}
+          />
+        </div>
+        <div>
+          <div class="mb-1 text-xs text-neutral-400">Pairing token</div>
+          <div class="flex flex-wrap gap-2">
+            <input
+              class="min-w-0 flex-1 rounded-xl border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm text-neutral-300 outline-none"
+              readonly
+              type={revealExtensionToken ? "text" : "password"}
+              value={extensionConfig?.token ?? ""}
+            />
+            <button
+              class="rounded-xl border border-neutral-800 px-3 py-2 text-xs hover:bg-neutral-900 disabled:opacity-50"
+              type="button"
+              on:click={() => {
+                revealExtensionToken = !revealExtensionToken;
+              }}
+              disabled={!extensionConfig}
+            >
+              {revealExtensionToken ? "Hide" : "Reveal"}
+            </button>
+            <button
+              class="rounded-xl border border-neutral-800 px-3 py-2 text-xs hover:bg-neutral-900 disabled:opacity-50"
+              type="button"
+              on:click={copyExtensionToken}
+              disabled={!extensionConfig}
+            >
+              Copy
+            </button>
+          </div>
+          <div class="mt-2 flex flex-wrap gap-2">
+            <button
+              class="rounded-xl border border-neutral-800 px-3 py-2 text-xs text-neutral-100 hover:bg-neutral-900 disabled:opacity-50"
+              type="button"
+              on:click={doRotateExtensionToken}
+              disabled={busy || !extensionConfig}
+            >
+              Rotate token
+            </button>
+          </div>
+        </div>
+        <div class="text-xs text-neutral-500">
+          The vault must remain unlocked for the extension to fetch credentials.
+        </div>
+      </div>
+
+      <div class="space-y-3 rounded-2xl border border-neutral-800 bg-neutral-950/40 p-4">
+        <div class="text-sm font-semibold text-neutral-200">Setup checklist</div>
+        <ol class="list-decimal space-y-2 pl-4 text-sm text-neutral-400">
+          <li>Load the unpacked extension from the <span class="text-neutral-200">browser-extension</span> folder.</li>
+          <li>Paste the local endpoint and pairing token into the extension settings.</li>
+          <li>Open a login page and pick a matching entry to autofill.</li>
+        </ol>
+        <div class="text-xs text-neutral-500">
+          Rotate the token any time you want to revoke access.
         </div>
       </div>
     </div>

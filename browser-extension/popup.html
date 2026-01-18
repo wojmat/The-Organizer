@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>The Organizer</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main class="app">
+      <header class="header">
+        <div>
+          <div class="title">The Organizer</div>
+          <div class="subtitle">Chromium bridge</div>
+        </div>
+        <button id="refresh" class="btn ghost" type="button">Refresh</button>
+      </header>
+
+      <section class="panel">
+        <div class="panel-title">Connection</div>
+        <label class="field">
+          <span>Local endpoint</span>
+          <input id="port" type="text" placeholder="17832" />
+        </label>
+        <label class="field">
+          <span>Pairing token</span>
+          <input id="token" type="password" placeholder="Paste token" />
+        </label>
+        <div class="actions">
+          <button id="save" class="btn" type="button">Save settings</button>
+          <button id="reveal" class="btn ghost" type="button">Reveal token</button>
+        </div>
+        <div id="status" class="status" aria-live="polite"></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-title">Matching entries</div>
+        <div id="empty" class="empty">Open a login page to see matches.</div>
+        <div id="entries" class="entries"></div>
+      </section>
+
+      <footer class="footer">
+        Vault must be unlocked in the desktop app while you autofill.
+      </footer>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>

@@ -1,0 +1,12 @@
+{
+  "name": "The Organizer",
+  "version": "0.1.0",
+  "manifest_version": 3,
+  "description": "Autofill credentials from The Organizer vault.",
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "The Organizer"
+  },
+  "permissions": ["activeTab", "scripting", "storage"],
+  "host_permissions": ["http://127.0.0.1/*", "http://localhost/*"]
+}

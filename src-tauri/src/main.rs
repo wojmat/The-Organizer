@@ -16,6 +16,7 @@ use std::time::{Duration, Instant};
 use tauri::Manager;
 
 use the_organizer::create_invoke_handler;
+use the_organizer::extension;
 use the_organizer::models::{AppState, INACTIVITY_POLL_SECS, INACTIVITY_TIMEOUT_SECS};
 
 fn main() {
@@ -27,6 +28,18 @@ fn main() {
       let state: AppState = app.state::<AppState>().inner().clone();
       let poll = Duration::from_secs(INACTIVITY_POLL_SECS);
       let timeout = Duration::from_secs(INACTIVITY_TIMEOUT_SECS);
+
+      match extension::load_or_create_config(&app.handle()) {
+        Ok(config) => {
+          if let Ok(mut guard) = state.extension_config.lock() {
+            *guard = config;
+          }
+        }
+        Err(err) => {
+          eprintln!("extension config load failed: {err}");
+        }
+      }
+      extension::start_extension_server(&app.handle(), state.clone());
 
       thread::spawn(move || loop {
         thread::sleep(poll);

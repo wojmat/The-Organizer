@@ -45,6 +45,33 @@ pub const MAX_FAILED_ATTEMPTS: u32 = 5;
 /// Duration of lockout after exceeding failed attempts (30 seconds).
 pub const LOCKOUT_DURATION_SECS: u64 = 30;
 
+/// Default port for the browser extension local API bridge.
+pub const EXTENSION_DEFAULT_PORT: u16 = 17832;
+
+/// Configuration for the browser extension integration.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ExtensionConfig {
+  pub enabled: bool,
+  pub token: String,
+  pub port: u16,
+}
+
+impl ExtensionConfig {
+  pub fn new() -> Self {
+    Self {
+      enabled: false,
+      token: Uuid::new_v4().to_string(),
+      port: EXTENSION_DEFAULT_PORT,
+    }
+  }
+}
+
+impl Default for ExtensionConfig {
+  fn default() -> Self {
+    Self::new()
+  }
+}
+
 /// A password entry stored in the vault.
 ///
 /// Each entry contains credentials for a single account or service.
@@ -205,6 +232,9 @@ pub struct AppState {
 
   /// Rate limiting tracker for failed unlock attempts.
   pub failed_attempts: Arc<Mutex<FailedAttemptTracker>>,
+
+  /// Browser extension integration settings.
+  pub extension_config: Arc<Mutex<ExtensionConfig>>,
 }
 
 impl Default for AppState {
@@ -215,6 +245,7 @@ impl Default for AppState {
       last_interaction: Arc::new(Mutex::new(Instant::now())),
       vault_path: Arc::new(Mutex::new(None)),
       failed_attempts: Arc::new(Mutex::new(FailedAttemptTracker::default())),
+      extension_config: Arc::new(Mutex::new(ExtensionConfig::default())),
     }
   }
 }

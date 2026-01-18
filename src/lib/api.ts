@@ -121,6 +121,12 @@ export interface EntryUpdateInput {
   notes: string;
 }
 
+export interface ExtensionConfig {
+  enabled: boolean;
+  token: string;
+  port: number;
+}
+
 export async function addEntry(input: EntryInput): Promise<EntryPublic> {
   return await invokeCommand<EntryPublic>("add_entry", { input });
 }
@@ -135,4 +141,16 @@ export async function deleteEntry(id: string): Promise<void> {
 
 export async function copySecret(id: string): Promise<void> {
   await invokeCommand("copy_secret", { id });
+}
+
+export async function getExtensionConfig(): Promise<ExtensionConfig> {
+  return await invokeCommand<ExtensionConfig>("get_extension_config");
+}
+
+export async function setExtensionEnabled(enabled: boolean): Promise<ExtensionConfig> {
+  return await invokeCommand<ExtensionConfig>("set_extension_enabled", { enabled });
+}
+
+export async function rotateExtensionToken(): Promise<ExtensionConfig> {
+  return await invokeCommand<ExtensionConfig>("rotate_extension_token");
 }

@@ -149,7 +149,17 @@ To use a stored password:
 3. For import, provide the backup path and master password used for that backup
 4. Click **Import** to replace the local vault with the backup contents
 
-### 8. Lock the Vault
+### 8. Browser Extension (Chromium)
+
+1. In the dashboard, enable the browser extension integration and copy the endpoint and token.
+2. In Chromium, open the extensions page and load the unpacked `browser-extension` folder.
+3. Open the extension popup, paste the endpoint and token, and click **Save settings**.
+4. Visit a login page and pick an entry to autofill.
+
+**Note**: The vault must stay unlocked while using the extension. Rotate the token to revoke access.
+See [docs/EXTENSION.md](docs/EXTENSION.md) for local bridge details.
+
+### 9. Lock the Vault
 
 - Click the "Lock" button in the header to manually lock
 - The vault also auto-locks after 5 minutes of inactivity
@@ -302,7 +312,7 @@ User Input → Svelte UI → Tauri IPC → Rust Backend → Vault File
 - [x] Password generator
 - [x] Password strength meter
 - [x] Audit logging
-- [ ] Browser extension integration
+- [x] Browser extension integration
 
 ---
 
