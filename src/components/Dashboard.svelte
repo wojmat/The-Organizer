@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { get } from "svelte/store";
   import { save, open } from "@tauri-apps/plugin-dialog";
   import EntryModal from "./EntryModal.svelte";
   import EntryRow from "./EntryRow.svelte";
@@ -24,14 +25,24 @@
   let editingEntry: EntryPublic | null = null;
   let busy = false;
   let toast: string | null = null;
-  let q = "";
   let expandedId: string | null = null;
+  let sortMode: "most-used" | "recent-updated" | "recent-created" | "title" = "most-used";
   let currentPassword = "";
   let newPassword = "";
   let confirmNewPassword = "";
   let exportPath = "";
   let importPath = "";
   let importPassword = "";
+  let auditLog: { id: string; action: string; detail: string; at: number }[] = [];
+
+  type InteractionStats = {
+    clicked: number;
+    managed: number;
+    copied: number;
+    last: number;
+  };
+
+  const interactionStats = new Map<string, InteractionStats>();
 
   function showToast(msg: string) {
     toast = msg;
@@ -44,6 +55,13 @@
     try {
       const list = await getEntries();
       entries.set(list);
+      const ids = new Set(list.map((entry) => entry.id));
+      for (const id of interactionStats.keys()) {
+        if (!ids.has(id)) interactionStats.delete(id);
+      }
+      if (expandedId && !ids.has(expandedId)) {
+        expandedId = null;
+      }
       setError(null);
     } catch {
       onLocked();
@@ -54,33 +72,72 @@
     refresh();
   });
 
-  function filterList(list: EntryPublic[]) {
-    if (!list || list.length === 0) return [];
-    const qq = (q ?? "").trim().toLowerCase();
-    if (!qq) return list;
-
-    return list.filter((e) => {
-      return (
-        e.title.toLowerCase().includes(qq) ||
-        e.username.toLowerCase().includes(qq) ||
-        (e.url || "").toLowerCase().includes(qq) ||
-        (e.notes || "").toLowerCase().includes(qq)
-      );
-    });
+  function getStats(id: string): InteractionStats {
+    const existing = interactionStats.get(id);
+    if (existing) return existing;
+    const fresh = { clicked: 0, managed: 0, copied: 0, last: 0 };
+    interactionStats.set(id, fresh);
+    return fresh;
   }
 
-  function handleSearchKeydown(event: KeyboardEvent) {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      onHeartbeat();
-      if (!q.trim()) {
-        q = "";
-        entries.update(e => [...e]);
+  function recordInteraction(
+    id: string,
+    type: "clicked" | "managed" | "copied"
+  ) {
+    const stats = getStats(id);
+    stats[type] += 1;
+    stats.last = Date.now();
+  }
+
+  function getUsageScore(id: string) {
+    const stats = interactionStats.get(id);
+    if (!stats) return 0;
+    return stats.clicked + stats.managed + stats.copied;
+  }
+
+  function getSortKey(entry: EntryPublic, key: "updated_at" | "created_at") {
+    const ts = Date.parse(entry[key]);
+    return Number.isNaN(ts) ? 0 : ts;
+  }
+
+  function sortEntries(list: EntryPublic[]) {
+    const sorted = [...list];
+    sorted.sort((a, b) => {
+      if (sortMode === "title") {
+        return a.title.localeCompare(b.title);
       }
-    }
+      if (sortMode === "recent-updated") {
+        return getSortKey(b, "updated_at") - getSortKey(a, "updated_at");
+      }
+      if (sortMode === "recent-created") {
+        return getSortKey(b, "created_at") - getSortKey(a, "created_at");
+      }
+      const scoreDiff = getUsageScore(b.id) - getUsageScore(a.id);
+      if (scoreDiff !== 0) return scoreDiff;
+      const lastDiff = getStats(b.id).last - getStats(a.id).last;
+      if (lastDiff !== 0) return lastDiff;
+      return getSortKey(b, "updated_at") - getSortKey(a, "updated_at");
+    });
+    return sorted;
   }
 
-  $: visible = filterList($entries);
+  function recordAudit(action: string, detail: string) {
+    auditLog = [
+      { id: crypto.randomUUID(), action, detail, at: Date.now() },
+      ...auditLog
+    ].slice(0, 8);
+  }
+
+  function formatTimestamp(ts: number) {
+    return new Date(ts).toLocaleString();
+  }
+
+  function getEntryTitle(id: string) {
+    const list = get(entries);
+    return list.find((entry) => entry.id === id)?.title ?? "Entry";
+  }
+
+  $: visible = sortEntries($entries);
 
   async function doCreate(input: EntryInput) {
     busy = true;
@@ -88,6 +145,7 @@
       onHeartbeat();
       await addEntry(input);
       await refresh();
+      recordAudit("Entry created", input.title.trim());
       showToast("Saved.");
     } catch (e) {
       setError((e as Error).message ?? String(e));
@@ -103,6 +161,8 @@
       onHeartbeat();
       await updateEntry(input);
       await refresh();
+      recordInteraction(input.id, "managed");
+      recordAudit("Entry updated", input.title.trim());
       showToast("Updated.");
       editingEntry = null;
     } catch (e) {
@@ -120,6 +180,8 @@
       onHeartbeat();
       await deleteEntry(id);
       if (expandedId === id) expandedId = null;
+      recordInteraction(id, "managed");
+      recordAudit("Entry deleted", getEntryTitle(id));
       await refresh();
       showToast("Deleted.");
     } catch (e) {
@@ -136,6 +198,8 @@
     try {
       onHeartbeat();
       await copySecret(id);
+      recordInteraction(id, "copied");
+      recordAudit("Password copied", getEntryTitle(id));
       showToast("Copied to clipboard (clears in 30s).");
     } catch (e) {
       setError((e as Error).message ?? String(e));
@@ -171,6 +235,7 @@
       currentPassword = "";
       newPassword = "";
       confirmNewPassword = "";
+      recordAudit("Master password updated", "Security settings updated.");
       showToast("Master password updated.");
       setError(null);
     } catch (e) {
@@ -192,6 +257,7 @@
     try {
       onHeartbeat();
       await exportVault(exportPath.trim());
+      recordAudit("Backup exported", exportPath.trim());
       showToast("Encrypted backup exported.");
       setError(null);
     } catch (e) {
@@ -220,6 +286,7 @@
       importPath = "";
       importPassword = "";
       await refresh();
+      recordAudit("Backup imported", importPath.trim());
       showToast("Encrypted backup imported.");
       setError(null);
     } catch (e) {
@@ -266,7 +333,7 @@
     <div>
       <div class="text-lg font-semibold">Entries</div>
       <div class="text-sm text-neutral-400">
-        Search filters the list locally (title, username, url, notes).
+        Sort by most used (clicked, managed, copied), recency, or title.
       </div>
       {#if $entries.length > 0}
         <div class="mt-1 text-xs text-neutral-500">
@@ -276,14 +343,20 @@
     </div>
 
     <div class="flex items-center gap-2">
-      <input
-        class="w-full rounded-xl border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm outline-none focus:border-neutral-600 md:w-72 disabled:opacity-50"
-        placeholder={$entries.length === 0 ? "Search (add an entry first)" : "Search..."}
-        bind:value={q}
-        on:input={() => onHeartbeat()}
-        on:keydown={handleSearchKeydown}
-        disabled={$entries.length === 0}
-      />
+      <div class="flex flex-col gap-1 md:flex-row md:items-center">
+        <label class="text-xs text-neutral-500">Sort by</label>
+        <select
+          class="rounded-xl border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm outline-none focus:border-neutral-600 disabled:opacity-50"
+          bind:value={sortMode}
+          on:change={() => onHeartbeat()}
+          disabled={$entries.length === 0}
+        >
+          <option value="most-used">Most used</option>
+          <option value="recent-updated">Recently updated</option>
+          <option value="recent-created">Recently created</option>
+          <option value="title">Title A–Z</option>
+        </select>
+      </div>
       <button
         class="rounded-xl bg-neutral-100 px-3 py-2 text-sm font-semibold text-neutral-950 hover:bg-white disabled:opacity-50"
         on:click={() => {
@@ -307,8 +380,6 @@
     <div class="rounded-2xl border border-neutral-800 bg-neutral-900/20 p-6 text-sm text-neutral-400">
       {#if $entries.length === 0}
         No entries yet. Click "Add" to create your first entry.
-      {:else}
-        No matches for "{q}".
       {/if}
     </div>
   {:else}
@@ -321,10 +392,14 @@
             expanded={expandedId === e.id}
             onHeartbeat={onHeartbeat}
             onToggle={() => {
+              recordInteraction(e.id, "clicked");
               expandedId = expandedId === e.id ? null : e.id;
             }}
             onCopy={() => doCopy(e.id)}
-            onModify={() => { editingEntry = e; }}
+            onModify={() => {
+              recordInteraction(e.id, "managed");
+              editingEntry = e;
+            }}
             onDelete={() => doDelete(e.id)}
           />
         {/each}
@@ -333,9 +408,35 @@
   {/if}
 
   <div class="rounded-2xl border border-neutral-800 bg-neutral-900/20 p-6">
+    <div class="text-lg font-semibold">Session activity</div>
+    <div class="mt-1 text-sm text-neutral-400">
+      Recent actions from this session (sorted by most recent).
+    </div>
+
+    {#if auditLog.length === 0}
+      <div class="mt-4 rounded-xl border border-neutral-800 bg-neutral-950/40 px-4 py-3 text-sm text-neutral-400">
+        No activity yet. Actions like copy, update, export, and import will appear here.
+      </div>
+    {:else}
+      <div class="mt-4 space-y-2">
+        {#each auditLog as item (item.id)}
+          <div class="rounded-xl border border-neutral-800 bg-neutral-950/40 px-4 py-3 text-sm">
+            <div class="flex flex-wrap items-center justify-between gap-2 text-neutral-200">
+              <div class="font-semibold">{item.action}</div>
+              <div class="text-xs text-neutral-500">{formatTimestamp(item.at)}</div>
+            </div>
+            <div class="mt-1 text-xs text-neutral-400">{item.detail}</div>
+          </div>
+        {/each}
+      </div>
+    {/if}
+  </div>
+
+  <div class="rounded-2xl border border-neutral-800 bg-neutral-900/20 p-6">
     <div class="text-lg font-semibold">Security &amp; backups</div>
     <div class="mt-1 text-sm text-neutral-400">
-      Change the master password or export/import an encrypted backup.
+      Change the master password or export/import an encrypted backup. Export uses your current master
+      password; imports require the master password that encrypted the backup.
     </div>
 
     <div class="mt-5 grid gap-6 lg:grid-cols-2">
@@ -433,13 +534,16 @@
               </div>
             </div>
             <div>
-              <div class="mb-1 text-xs text-neutral-400">Backup master password</div>
+              <div class="mb-1 text-xs text-neutral-400">Master password for this backup</div>
               <input
                 class="w-full rounded-xl border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm outline-none focus:border-neutral-600"
                 type="password"
                 autocomplete="current-password"
                 bind:value={importPassword}
               />
+              <div class="mt-1 text-xs text-neutral-500">
+                Enter the master password used when the backup was created (it may differ from your current one).
+              </div>
             </div>
             <button
               class="rounded-xl border border-neutral-800 px-3 py-2 text-sm text-neutral-100 hover:bg-neutral-900 disabled:opacity-50"
