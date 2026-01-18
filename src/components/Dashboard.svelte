@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onDestroy, onMount } from "svelte";
   import { get } from "svelte/store";
   import { save, open } from "@tauri-apps/plugin-dialog";
   import EntryModal from "./EntryModal.svelte";
@@ -35,6 +35,23 @@
   let importPassword = "";
   let auditLog: { id: string; action: string; detail: string; at: number }[] = [];
   let sortEpoch = 0;
+  let toastTimerId: number | null = null;
+  let clipboardCountdownId: number | null = null;
+
+  // Keep in sync with the backend clipboard clear delay.
+  const CLIPBOARD_CLEAR_SECONDS = 15;
+
+  type NoticeTone = "error" | "success" | "info";
+  type Notice = { message: string; tone: NoticeTone };
+
+  const NOTICE_CLASS: Record<NoticeTone, string> = {
+    error: "border-red-900/60 bg-red-950/40 text-red-200",
+    success: "border-emerald-900/60 bg-emerald-950/40 text-emerald-200",
+    info: "border-neutral-800 bg-neutral-900/40 text-neutral-200"
+  };
+
+  let passwordNotice: Notice | null = null;
+  let backupNotice: Notice | null = null;
 
   type InteractionStats = {
     clicked: number;
@@ -49,25 +66,71 @@
     return error instanceof Error ? error.message : String(error);
   }
 
-  async function runWithBusy(task: () => Promise<void>) {
+  async function runWithBusy(
+    task: () => Promise<void>,
+    onError?: (error: unknown) => void
+  ) {
     if (busy) return;
     busy = true;
     try {
       onHeartbeat();
       await task();
     } catch (e) {
-      setError(toErrorMessage(e));
+      if (onError) {
+        onError(e);
+      } else {
+        setError(toErrorMessage(e));
+      }
     } finally {
       busy = false;
       heartbeat().catch(() => {});
     }
   }
 
+  function clearToastTimers() {
+    if (toastTimerId !== null) window.clearTimeout(toastTimerId);
+    if (clipboardCountdownId !== null) window.clearInterval(clipboardCountdownId);
+    toastTimerId = null;
+    clipboardCountdownId = null;
+  }
+
   function showToast(msg: string) {
+    clearToastTimers();
     toast = msg;
-    window.setTimeout(() => {
+    toastTimerId = window.setTimeout(() => {
       toast = null;
     }, 2500);
+  }
+
+  function showClipboardCountdown(seconds: number) {
+    clearToastTimers();
+    const endAt = Date.now() + seconds * 1000;
+    const tick = () => {
+      const remaining = Math.max(0, Math.ceil((endAt - Date.now()) / 1000));
+      toast = `Copied to clipboard. Clears in ${remaining}s.`;
+      if (remaining <= 0) {
+        clearToastTimers();
+        toast = null;
+      }
+    };
+    tick();
+    clipboardCountdownId = window.setInterval(tick, 1000);
+  }
+
+  function setPasswordNotice(message: string, tone: NoticeTone = "info") {
+    passwordNotice = { message, tone };
+  }
+
+  function setBackupNotice(message: string, tone: NoticeTone = "info") {
+    backupNotice = { message, tone };
+  }
+
+  function clearPasswordNotice() {
+    passwordNotice = null;
+  }
+
+  function clearBackupNotice() {
+    backupNotice = null;
   }
 
   async function refresh() {
@@ -91,6 +154,10 @@
     refresh();
   });
 
+  onDestroy(() => {
+    clearToastTimers();
+  });
+
   function getStats(id: string): InteractionStats {
     const existing = interactionStats.get(id);
     if (existing) return existing;
@@ -106,6 +173,9 @@
     const stats = getStats(id);
     stats[type] += 1;
     stats.last = Date.now();
+    if (sortMode === "most-used") {
+      sortEpoch += 1;
+    }
   }
 
   function getUsageScore(id: string) {
@@ -198,75 +268,95 @@
       await copySecret(id);
       recordInteraction(id, "copied");
       recordAudit("Password copied", getEntryTitle(id));
-      showToast("Copied to clipboard (clears in 15s).");
+      showClipboardCountdown(CLIPBOARD_CLEAR_SECONDS);
     });
   }
 
   async function doChangeMasterPassword() {
     setError(null);
+    clearPasswordNotice();
     if (!currentPassword) {
-      setError("Enter your current master password.");
+      setPasswordNotice("Enter your current master password.", "error");
       return;
     }
     if (!newPassword) {
-      setError("Enter a new master password.");
+      setPasswordNotice("Enter a new master password.", "error");
       return;
     }
     if (newPassword.length < 10) {
-      setError("New master password must be at least 10 characters.");
+      setPasswordNotice("New master password must be at least 10 characters.", "error");
       return;
     }
     if (newPassword !== confirmNewPassword) {
-      setError("New master passwords do not match.");
+      setPasswordNotice("New master passwords do not match.", "error");
       return;
     }
 
-    await runWithBusy(async () => {
-      await changeMasterPassword(currentPassword, newPassword);
-      recordAudit("Master password updated", "Security settings updated.");
-      showToast("Master password updated.");
-      setError(null);
-    });
+    await runWithBusy(
+      async () => {
+        await changeMasterPassword(currentPassword, newPassword);
+        recordAudit("Master password updated", "Security settings updated.");
+        setPasswordNotice("Master password updated.", "success");
+        setError(null);
+      },
+      (e) => {
+        setPasswordNotice(toErrorMessage(e), "error");
+      }
+    );
     currentPassword = "";
     newPassword = "";
     confirmNewPassword = "";
   }
 
   async function doExport() {
+    setError(null);
+    clearBackupNotice();
     if (!exportPath.trim()) {
-      setError("Enter a file path for the encrypted backup.");
+      setBackupNotice("Enter a file path for the encrypted backup.", "error");
       return;
     }
 
     const trimmedPath = exportPath.trim();
-    await runWithBusy(async () => {
-      await exportVault(trimmedPath);
-      recordAudit("Backup exported", trimmedPath);
-      showToast("Encrypted backup exported.");
-      setError(null);
-    });
+    await runWithBusy(
+      async () => {
+        await exportVault(trimmedPath);
+        recordAudit("Backup exported", trimmedPath);
+        setBackupNotice("Encrypted backup exported.", "success");
+        setError(null);
+      },
+      (e) => {
+        setBackupNotice(toErrorMessage(e), "error");
+      }
+    );
   }
 
   async function doImport() {
+    setError(null);
+    clearBackupNotice();
     if (!importPath.trim()) {
-      setError("Enter a backup file path to import.");
+      setBackupNotice("Enter a backup file path to import.", "error");
       return;
     }
     if (!importPassword) {
-      setError("Enter the master password for the backup.");
+      setBackupNotice("Enter the master password for the backup.", "error");
       return;
     }
 
     const auditPath = importPath.trim();
-    await runWithBusy(async () => {
-      await importVault(auditPath, importPassword);
-      importPath = "";
-      importPassword = "";
-      await refresh();
-      recordAudit("Backup imported", auditPath);
-      showToast("Encrypted backup imported.");
-      setError(null);
-    });
+    await runWithBusy(
+      async () => {
+        await importVault(auditPath, importPassword);
+        importPath = "";
+        importPassword = "";
+        await refresh();
+        recordAudit("Backup imported", auditPath);
+        setBackupNotice("Encrypted backup imported.", "success");
+        setError(null);
+      },
+      (e) => {
+        setBackupNotice(toErrorMessage(e), "error");
+      }
+    );
     importPassword = "";
   }
 
@@ -279,9 +369,10 @@
       if (selected) {
         exportPath = selected;
         onHeartbeat();
+        clearBackupNotice();
       }
     } catch (e) {
-      setError(toErrorMessage(e));
+      setBackupNotice(toErrorMessage(e), "error");
     }
   }
 
@@ -294,9 +385,10 @@
       if (selected && typeof selected === "string") {
         importPath = selected;
         onHeartbeat();
+        clearBackupNotice();
       }
     } catch (e) {
-      setError(toErrorMessage(e));
+      setBackupNotice(toErrorMessage(e), "error");
     }
   }
 </script>
@@ -422,7 +514,10 @@
               type="password"
               autocomplete="current-password"
               bind:value={currentPassword}
-              on:input={() => setError(null)}
+              on:input={() => {
+                clearPasswordNotice();
+                setError(null);
+              }}
             />
           </div>
           <div class="grid gap-3 sm:grid-cols-2">
@@ -433,7 +528,10 @@
                 type="password"
                 autocomplete="new-password"
                 bind:value={newPassword}
-                on:input={() => setError(null)}
+                on:input={() => {
+                  clearPasswordNotice();
+                  setError(null);
+                }}
               />
             </div>
             <div>
@@ -443,10 +541,18 @@
                 type="password"
                 autocomplete="new-password"
                 bind:value={confirmNewPassword}
-                on:input={() => setError(null)}
+                on:input={() => {
+                  clearPasswordNotice();
+                  setError(null);
+                }}
               />
             </div>
           </div>
+          {#if passwordNotice}
+            <div class={`rounded-xl border px-3 py-2 text-xs ${NOTICE_CLASS[passwordNotice.tone]}`}>
+              {passwordNotice.message}
+            </div>
+          {/if}
         <button
           class="rounded-xl bg-neutral-100 px-3 py-2 text-sm font-semibold text-neutral-950 hover:bg-white disabled:opacity-50"
           on:click={doChangeMasterPassword}
@@ -457,6 +563,11 @@
       </div>
 
       <div class="space-y-5 rounded-2xl border border-neutral-800 bg-neutral-950/40 p-4">
+        {#if backupNotice}
+          <div class={`rounded-xl border px-3 py-2 text-xs ${NOTICE_CLASS[backupNotice.tone]}`}>
+            {backupNotice.message}
+          </div>
+        {/if}
         <div>
           <div class="text-sm font-semibold text-neutral-200">Export encrypted backup</div>
           <div class="mt-2 space-y-2">
@@ -467,6 +578,10 @@
                   class="flex-1 rounded-xl border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm outline-none focus:border-neutral-600"
                   placeholder="/path/to/backup.vault"
                   bind:value={exportPath}
+                  on:input={() => {
+                    clearBackupNotice();
+                    setError(null);
+                  }}
                 />
                 <button
                   class="rounded-xl border border-neutral-800 px-3 py-2 text-sm hover:bg-neutral-900 disabled:opacity-50"
@@ -498,6 +613,10 @@
                   class="flex-1 rounded-xl border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm outline-none focus:border-neutral-600"
                   placeholder="/path/to/backup.vault"
                   bind:value={importPath}
+                  on:input={() => {
+                    clearBackupNotice();
+                    setError(null);
+                  }}
                 />
                 <button
                   class="rounded-xl border border-neutral-800 px-3 py-2 text-sm hover:bg-neutral-900 disabled:opacity-50"
@@ -516,6 +635,10 @@
                 type="password"
                 autocomplete="current-password"
                 bind:value={importPassword}
+                on:input={() => {
+                  clearBackupNotice();
+                  setError(null);
+                }}
               />
               <div class="mt-1 text-xs text-neutral-500">
                 Enter the master password used when the backup was created (it may differ from your current one).

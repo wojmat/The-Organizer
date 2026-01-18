@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { friendlyError } from "./errors";
+import { AppError, friendlyError } from "./errors";
 
 export interface EntryPublic {
   id: string;
@@ -28,7 +28,7 @@ function isErrorWithMessage(value: unknown): value is { message: unknown } {
   );
 }
 
-function asStringError(e: unknown): string {
+function asFriendlyError(e: unknown) {
   // Normalize any thrown value into a stable string for UI messaging.
   let raw: string;
   if (typeof e === "string") {
@@ -52,7 +52,8 @@ async function invokeCommand<T = void>(
   try {
     return await invoke<T>(command, args);
   } catch (e) {
-    throw new Error(asStringError(e));
+    const friendly = asFriendlyError(e);
+    throw new AppError(friendly.message, friendly.lockoutSeconds);
   }
 }
 

@@ -8,6 +8,11 @@ interface ErrorMapping {
   message: string;
 }
 
+export interface FriendlyErrorDetail {
+  message: string;
+  lockoutSeconds?: number;
+}
+
 const ERROR_MAP: ReadonlyArray<ErrorMapping> = [
   // Password/authentication errors
   { pattern: /load:.*Crypto/i, message: "Incorrect password. Please try again." },
@@ -32,9 +37,6 @@ const ERROR_MAP: ReadonlyArray<ErrorMapping> = [
   // KDF errors
   { pattern: /kdf:/i, message: "Error processing password. Please try again." },
 
-  // Rate limiting
-  { pattern: /Too many failed attempts/i, message: "Too many failed attempts. Please wait before trying again." },
-
   // Entry errors
   { pattern: /entry not found/i, message: "Entry not found. It may have been deleted." },
 
@@ -49,17 +51,43 @@ const ERROR_MAP: ReadonlyArray<ErrorMapping> = [
 ];
 
 const FALLBACK_MESSAGE = "An unexpected error occurred. Please try again.";
+const LOCKOUT_PATTERN = /Too many failed attempts.*?(\d+)\s*seconds/i;
+
+export class AppError extends Error {
+  lockoutSeconds?: number;
+
+  constructor(message: string, lockoutSeconds?: number) {
+    super(message);
+    this.name = "AppError";
+    this.lockoutSeconds = lockoutSeconds;
+  }
+}
+
+function parseLockoutSeconds(rawError: string): number | undefined {
+  const match = rawError.match(LOCKOUT_PATTERN);
+  if (!match) return undefined;
+  const seconds = Number.parseInt(match[1], 10);
+  return Number.isFinite(seconds) ? seconds : undefined;
+}
 
 /**
  * Converts a raw technical error message to a user-friendly message.
  * @param rawError The raw error string from the backend
  * @returns A user-friendly error message
  */
-export function friendlyError(rawError: string): string {
+export function friendlyError(rawError: string): FriendlyErrorDetail {
+  const lockoutSeconds = parseLockoutSeconds(rawError);
+  if (lockoutSeconds !== undefined) {
+    return {
+      message: "Too many failed attempts. Please wait before trying again.",
+      lockoutSeconds
+    };
+  }
+
   const match = ERROR_MAP.find(({ pattern }) => pattern.test(rawError));
-  if (match) return match.message;
+  if (match) return { message: match.message };
 
   // Fallback: log the original error for debugging and return a generic message
   console.error("Unmapped error:", rawError);
-  return FALLBACK_MESSAGE;
+  return { message: FALLBACK_MESSAGE };
 }

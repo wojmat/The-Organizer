@@ -52,16 +52,6 @@
     </button>
 
     <div class="flex items-center gap-2 md:flex-shrink-0">
-      {#if hasNotes(entry)}
-        <button
-          class="max-w-[220px] truncate rounded-xl border border-neutral-800 px-3 py-1.5 text-sm text-neutral-300"
-          type="button"
-          title={entry.notes}
-        >
-          {entry.notes}
-        </button>
-      {/if}
-
       <button
         class="rounded-xl border border-neutral-800 px-3 py-1.5 text-sm hover:bg-neutral-900 disabled:opacity-50"
         on:click={() => {
