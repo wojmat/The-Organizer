@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { EntryInput, EntryPublic, EntryUpdateInput } from "../lib/api";
-  import { generatePassword } from "../lib/password-generator";
+  import { calculateStrength, generatePassword } from "../lib/password-generator";
 
   export let onCancel: () => void;
   export let onCreate: ((input: EntryInput) => Promise<void>) | null = null;
@@ -18,6 +18,19 @@
 
   let busy = false;
   let localError: string | null = null;
+
+  $: passwordStrength = password ? calculateStrength(password) : null;
+  $: strengthLabel = passwordStrength ? passwordStrength : "—";
+  $: strengthTone =
+    passwordStrength === "strong"
+      ? "text-emerald-400"
+      : passwordStrength === "good"
+        ? "text-lime-400"
+        : passwordStrength === "fair"
+          ? "text-amber-400"
+          : passwordStrength === "weak"
+            ? "text-red-400"
+            : "text-neutral-500";
 
   function reset() {
     title = "";
@@ -152,6 +165,10 @@
           >
             Generate
           </button>
+        </div>
+        <div class="mt-2 text-xs text-neutral-400">
+          Strength:
+          <span class={strengthTone}>{strengthLabel}</span>
         </div>
       </div>
 

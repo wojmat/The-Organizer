@@ -299,9 +299,9 @@ User Input → Svelte UI → Tauri IPC → Rust Backend → Vault File
 - [x] Vault format versioning
 - [x] Master password change
 - [x] Import/export (encrypted backup)
-- [ ] Password generator
-- [ ] Password strength meter
-- [ ] Audit logging
+- [x] Password generator
+- [x] Password strength meter
+- [x] Audit logging
 - [ ] Browser extension integration
 
 ---
