@@ -186,7 +186,7 @@ pub fn load_with_password(
   //
   // IMPORTANT: legacy v0 can "collide" if salt[0] == VAULT_FORMAT_VERSION.
   // In that case, we must try versioned first, and if decrypt fails, fall back to v0.
-  let (version, result) = if bytes.len() >= 5 && bytes[..4] == VAULT_MAGIC[..] {
+  let (_version, result) = if bytes.len() >= 5 && bytes[..4] == VAULT_MAGIC[..] {
     // Unambiguous: magic header.
     if bytes.len() < 4 + 1 + SALT_LEN + NONCE_LEN + AEAD_TAG_LEN {
       return Err(VaultError::Format("versioned vault file too small".to_string()));
