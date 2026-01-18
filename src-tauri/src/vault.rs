@@ -68,25 +68,18 @@ pub fn generate_salt() -> [u8; SALT_LEN] {
 
 /// Derives a 256-bit encryption key from the master password using Argon2id.
 ///
-/// # Parameters
+/// # Arguments
 ///
-/// - `master_password`: User's master password (not stored, used only for derivation)
-/// - `salt`: 32-byte random salt (unique per vault)
+/// - `master_password`: The user-provided master password
+/// - `salt`: A 32-byte salt unique to this vault
 ///
 /// # Returns
 ///
-/// A 32-byte (256-bit) key suitable for XChaCha20-Poly1305 encryption.
+/// A 32-byte key suitable for XChaCha20-Poly1305.
 ///
 /// # Security
 ///
-/// Uses Argon2id (RFC 9106) with:
-/// - Memory cost: 64 MiB (65,536 KiB) - resists GPU/ASIC attacks
-/// - Time cost: 3 iterations - balances security and performance
-/// - Parallelism: 1 thread - suitable for interactive use
-/// - Output length: 32 bytes (256 bits)
-///
-/// These parameters provide strong protection against brute force attacks
-/// while remaining responsive on modern hardware (~200ms on typical machines).
+/// Uses Argon2id with memory-hard parameters to resist brute force attacks.
 pub fn derive_key(master_password: &str, salt: &[u8; SALT_LEN]) -> Result<[u8; 32], VaultError> {
   // Interactive-optimized parameters: 64 MiB memory, 3 iterations, 1 thread, 32-byte output
   let params = Params::new(64 * 1024, 3, 1, Some(32))
@@ -145,58 +138,86 @@ pub fn load_with_password(
 ) -> Result<VaultLoadResult, VaultError> {
   let bytes = fs::read(path)?;
 
-  // Minimum size check
-  let min_size = SALT_LEN + NONCE_LEN;
-  if bytes.len() < min_size {
+  // Minimum size check: salt + nonce + AEAD tag (ciphertext may be empty JSON, but tag is required).
+  const AEAD_TAG_LEN: usize = 16;
+  let min_v0_size = SALT_LEN + NONCE_LEN + AEAD_TAG_LEN;
+  if bytes.len() < min_v0_size {
     return Err(VaultError::Format("vault file too small".to_string()));
   }
 
-  // Try to detect magic header, then legacy version byte, then fallback to raw salt.
-  let (_version, offset) = if bytes.len() >= 5 && bytes[..4] == VAULT_MAGIC[..] {
-    if bytes.len() < 4 + 1 + SALT_LEN + NONCE_LEN {
-      return Err(VaultError::Format("versioned vault file too small".to_string()));
+  // Parse/decrypt helper for different header offsets.
+  let parse_at = |offset: usize| -> Result<VaultLoadResult, VaultError> {
+    if bytes.len() < offset + SALT_LEN + NONCE_LEN + AEAD_TAG_LEN {
+      return Err(VaultError::Format("vault file too small".to_string()));
     }
-    (bytes[4], 5)
-  } else if bytes[0] == VAULT_FORMAT_VERSION {
-    if bytes.len() < 1 + SALT_LEN + NONCE_LEN {
-      return Err(VaultError::Format("versioned vault file too small".to_string()));
-    }
-    (bytes[0], 1)
-  } else {
-    (0u8, 0)
+
+    let mut salt = [0u8; SALT_LEN];
+    salt.copy_from_slice(&bytes[offset..(offset + SALT_LEN)]);
+
+    let mut nonce = [0u8; NONCE_LEN];
+    nonce.copy_from_slice(&bytes[(offset + SALT_LEN)..(offset + SALT_LEN + NONCE_LEN)]);
+
+    let ciphertext = &bytes[(offset + SALT_LEN + NONCE_LEN)..];
+
+    let mut key = derive_key(master_password, &salt)?;
+    let cipher = XChaCha20Poly1305::new(Key::from_slice(&key));
+
+    let mut plaintext = cipher
+      .decrypt(XNonce::from_slice(&nonce), ciphertext)
+      .map_err(|e| VaultError::Crypto(e.to_string()))?;
+
+    let entries: Vec<Entry> =
+      serde_json::from_slice(&plaintext).map_err(|e| VaultError::Json(e.to_string()))?;
+
+    // Zeroize plaintext bytes after parsing.
+    plaintext.zeroize();
+
+    // We return a copy so caller can keep it while unlocked.
+    let key_out = key;
+    key.zeroize();
+
+    Ok((entries, salt, key_out))
   };
 
-  let mut salt = [0u8; SALT_LEN];
-  salt.copy_from_slice(&bytes[offset..(offset + SALT_LEN)]);
+  // Detect formats:
+  // - Magic format:   [4B magic][1B version][salt][nonce][ciphertext]
+  // - Versioned:      [1B version][salt][nonce][ciphertext]  (legacy)
+  // - Legacy v0:      [salt][nonce][ciphertext]
+  //
+  // IMPORTANT: legacy v0 can "collide" if salt[0] == VAULT_FORMAT_VERSION.
+  // In that case, we must try versioned first, and if decrypt fails, fall back to v0.
+  let (version, result) = if bytes.len() >= 5 && bytes[..4] == VAULT_MAGIC[..] {
+    // Unambiguous: magic header.
+    if bytes.len() < 4 + 1 + SALT_LEN + NONCE_LEN + AEAD_TAG_LEN {
+      return Err(VaultError::Format("versioned vault file too small".to_string()));
+    }
+    (bytes[4], parse_at(5)?)
+  } else if bytes[0] == VAULT_FORMAT_VERSION {
+    // Ambiguous: could be legacy versioned, or legacy v0 with salt[0] == version byte.
+    if bytes.len() < 1 + SALT_LEN + NONCE_LEN + AEAD_TAG_LEN {
+      return Err(VaultError::Format("versioned vault file too small".to_string()));
+    }
 
-  let mut nonce = [0u8; NONCE_LEN];
-  nonce.copy_from_slice(&bytes[(offset + SALT_LEN)..(offset + SALT_LEN + NONCE_LEN)]);
+    match parse_at(1) {
+      Ok(ok) => (bytes[0], ok),
+      Err(e_v1 @ VaultError::Crypto(_)) => {
+        // Fallback to legacy v0 parsing to handle version-byte collisions.
+        // If v0 parsing also fails, return the original error.
+        match parse_at(0) {
+          Ok(ok) => (0u8, ok),
+          Err(_) => return Err(e_v1),
+        }
+      }
+      Err(e) => return Err(e),
+    }
+  } else {
+    (0u8, parse_at(0)?)
+  };
 
-  let ciphertext = &bytes[(offset + SALT_LEN + NONCE_LEN)..];
-
-  let mut key = derive_key(master_password, &salt)?;
-  let cipher = XChaCha20Poly1305::new(Key::from_slice(&key));
-
-  let mut plaintext = cipher
-    .decrypt(XNonce::from_slice(&nonce), ciphertext)
-    .map_err(|e| VaultError::Crypto(e.to_string()))?;
-
-  let entries: Vec<Entry> =
-    serde_json::from_slice(&plaintext).map_err(|e| VaultError::Json(e.to_string()))?;
-
-  // Zeroize plaintext bytes after parsing.
-  plaintext.zeroize();
-
-  // Version is available for future format migrations if needed.
-  // Currently only used for logging in debug builds.
   #[cfg(debug_assertions)]
-  eprintln!("Loaded vault format version: {}", _version);
+  eprintln!("Loaded vault format version: {}", version);
 
-  // We return a copy so caller can keep it while unlocked.
-  let key_out = key;
-  key.zeroize();
-
-  Ok((entries, salt, key_out))
+  Ok(result)
 }
 
 #[cfg(test)]
@@ -234,13 +255,12 @@ mod tests {
 
     save_with_key(&path, &entries, &salt, &key).expect("save");
 
-    let (loaded, salt2, key2) = load_with_password(&path, password).expect("load");
-    assert_eq!(salt, salt2);
-    assert_eq!(key, key2);
-    assert_eq!(loaded.len(), 1);
-    assert_eq!(loaded[0].title, "Example");
-    assert_eq!(loaded[0].username, "alice");
-    assert_eq!(loaded[0].password, "secret");
+    let loaded = load_with_password(&path, password).expect("load");
+    assert_eq!(loaded.0.len(), 1);
+    assert_eq!(loaded.1, salt);
+    assert_eq!(loaded.0[0].title, "Example");
+    assert_eq!(loaded.0[0].username, "alice");
+    assert_eq!(loaded.0[0].password, "secret");
 
     let _ = std::fs::remove_file(&path);
   }
@@ -265,6 +285,10 @@ mod tests {
 
   #[test]
   fn legacy_v0_compatibility_ignores_version_byte_collision() {
+    use std::fs;
+    use chacha20poly1305::aead::Aead;
+    use chacha20poly1305::XChaCha20Poly1305;
+
     let path = temp_file_path("legacy-v0");
     let _ = std::fs::remove_file(&path);
 

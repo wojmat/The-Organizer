@@ -52,13 +52,11 @@ fn resolve_vault_path(app: &AppHandle, state: &AppState) -> Result<PathBuf, Stri
 
   Ok(path)
 }
-
-/// Locks a mutex and maps poisoning into a consistent error message.
-fn lock_state<T>(mutex: &Mutex<T>, label: &str) -> Result<MutexGuard<'_, T>, String> {
-  mutex
-    .lock()
-    .map_err(|_| format!("{label} mutex poisoned"))
+/// Helper to lock a mutex and provide a consistent error message if poisoned.
+fn lock_state<'a, T>(mutex: &'a Mutex<T>, label: &str) -> Result<MutexGuard<'a, T>, String> {
+  mutex.lock().map_err(|_| format!("{label} mutex poisoned"))
 }
+
 
 /// Input data for creating a new password entry.
 ///
@@ -322,10 +320,11 @@ pub fn import_vault(
   let import_path = PathBuf::from(path);
   let master = Zeroizing::new(master_password);
 
-  let (entries, _salt, mut import_key) = vault::load_with_password(&import_path, master.as_str())
+let (entries, _salt, mut import_key): (Vec<Entry>, [u8; 32], [u8; 32]) =
+  vault::load_with_password(&import_path, master.as_str())
     .map_err(|e| format!("load: {:?}", e))?;
 
-  import_key.zeroize();
+import_key.zeroize();
 
   let new_salt = vault::generate_salt();
   let new_key = vault::derive_key(master.as_str(), &new_salt)
