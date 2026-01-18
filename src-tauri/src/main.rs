@@ -20,6 +20,7 @@ use the_organizer::models::{AppState, INACTIVITY_POLL_SECS, INACTIVITY_TIMEOUT_S
 
 fn main() {
   let builder = tauri::Builder::default()
+    .plugin(tauri_plugin_dialog::init())
     .manage(AppState::default())
     .invoke_handler(create_invoke_handler())
     .setup(|app| {

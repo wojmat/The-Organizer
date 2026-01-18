@@ -1,14 +1,20 @@
 <script lang="ts">
-  import type { EntryInput } from "../lib/api";
+  import type { EntryInput, EntryPublic, EntryUpdateInput } from "../lib/api";
+  import { generatePassword } from "../lib/password-generator";
 
   export let onCancel: () => void;
-  export let onCreate: (input: EntryInput) => Promise<void>;
+  export let onCreate: ((input: EntryInput) => Promise<void>) | null = null;
+  export let onUpdate: ((input: EntryUpdateInput) => Promise<void>) | null = null;
+  export let existingEntry: EntryPublic | null = null;
 
-  let title = "";
-  let username = "";
+  $: isEditMode = existingEntry !== null;
+  $: modalTitle = isEditMode ? "Edit entry" : "New entry";
+
+  let title = existingEntry?.title ?? "";
+  let username = existingEntry?.username ?? "";
   let password = "";
-  let url = "";
-  let notes = "";
+  let url = existingEntry?.url ?? "";
+  let notes = existingEntry?.notes ?? "";
 
   let busy = false;
   let localError: string | null = null;
@@ -25,8 +31,16 @@
 
   function validate(): string | null {
     if (!title.trim()) return "Title is required.";
-    if (!password) return "Password is required.";
+    if (!isEditMode && !password) return "Password is required.";
     return null;
+  }
+
+  function doGeneratePassword() {
+    try {
+      password = generatePassword();
+    } catch (e) {
+      localError = (e as Error).message;
+    }
   }
 
   async function submit() {
@@ -40,15 +54,25 @@
 
     busy = true;
     try {
-      await onCreate({
-        title: title.trim(),
-        username: username.trim(),
-        password,
-        url: url.trim(),
-        notes: notes.trim()
-      });
+      if (isEditMode && onUpdate && existingEntry) {
+        await onUpdate({
+          id: existingEntry.id,
+          title: title.trim(),
+          username: username.trim(),
+          password: password || undefined,
+          url: url.trim(),
+          notes: notes.trim()
+        });
+      } else if (onCreate) {
+        await onCreate({
+          title: title.trim(),
+          username: username.trim(),
+          password,
+          url: url.trim(),
+          notes: notes.trim()
+        });
+      }
 
-      // Clear sensitive input immediately after use.
       reset();
       onCancel();
     } catch (e) {
@@ -56,7 +80,6 @@
       password = "";
     } finally {
       busy = false;
-      // Best-effort clear password
       password = "";
     }
   }
@@ -65,7 +88,7 @@
 <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
   <div class="w-full max-w-lg rounded-2xl border border-neutral-800 bg-neutral-950 shadow">
     <div class="flex items-center justify-between border-b border-neutral-800 px-5 py-4">
-      <div class="text-base font-semibold">New entry</div>
+      <div class="text-base font-semibold">{modalTitle}</div>
       <button
         class="rounded-xl border border-neutral-800 px-3 py-1.5 text-sm hover:bg-neutral-900"
         on:click={() => {
@@ -105,16 +128,32 @@
         </label>
       </div>
 
-      <label class="block">
-        <div class="mb-1 text-sm text-neutral-300">Password</div>
-        <input
-          class="w-full rounded-xl border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm outline-none focus:border-neutral-600"
-          type="password"
-          autocomplete="new-password"
-          bind:value={password}
-          disabled={busy}
-        />
-      </label>
+      <div class="block">
+        <div class="mb-1 text-sm text-neutral-300">
+          Password
+          {#if isEditMode}
+            <span class="ml-2 text-xs text-neutral-500">(leave empty to keep current)</span>
+          {/if}
+        </div>
+        <div class="flex gap-2">
+          <input
+            class="flex-1 rounded-xl border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm outline-none focus:border-neutral-600"
+            type="password"
+            autocomplete="new-password"
+            bind:value={password}
+            disabled={busy}
+          />
+          <button
+            type="button"
+            class="rounded-xl border border-neutral-800 px-3 py-2 text-sm hover:bg-neutral-900 disabled:opacity-50"
+            on:click={doGeneratePassword}
+            disabled={busy}
+            title="Generate secure password"
+          >
+            Generate
+          </button>
+        </div>
+      </div>
 
       <label class="block">
         <div class="mb-1 text-sm text-neutral-300">URL</div>
@@ -137,7 +176,7 @@
           class="min-h-24 w-full rounded-xl border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm outline-none focus:border-neutral-600"
           bind:value={notes}
           disabled={busy}
-        />
+        ></textarea>
       </label>
 
       <div class="flex items-center justify-end gap-2 pt-2">

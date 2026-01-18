@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { friendlyError } from "./errors";
 
 export interface EntryPublic {
   id: string;
@@ -21,13 +22,19 @@ export interface EntryInput {
 
 function asStringError(e: unknown): string {
   // Normalize any thrown value into a stable string for UI messaging.
-  if (typeof e === "string") return e;
-  if (e && typeof e === "object" && "message" in e) return String((e as any).message);
-  try {
-    return JSON.stringify(e);
-  } catch {
-    return String(e);
+  let raw: string;
+  if (typeof e === "string") {
+    raw = e;
+  } else if (e && typeof e === "object" && "message" in e) {
+    raw = String((e as any).message);
+  } else {
+    try {
+      raw = JSON.stringify(e);
+    } catch {
+      raw = String(e);
+    }
   }
+  return friendlyError(raw);
 }
 
 export async function heartbeat(): Promise<void> {
@@ -109,9 +116,26 @@ export async function getEntries(): Promise<EntryPublic[]> {
   }
 }
 
+export interface EntryUpdateInput {
+  id: string;
+  title: string;
+  username: string;
+  password?: string;
+  url: string;
+  notes: string;
+}
+
 export async function addEntry(input: EntryInput): Promise<EntryPublic> {
   try {
     return await invoke<EntryPublic>("add_entry", { input });
+  } catch (e) {
+    throw new Error(asStringError(e));
+  }
+}
+
+export async function updateEntry(input: EntryUpdateInput): Promise<EntryPublic> {
+  try {
+    return await invoke<EntryPublic>("update_entry", { input });
   } catch (e) {
     throw new Error(asStringError(e));
   }

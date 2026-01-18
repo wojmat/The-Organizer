@@ -64,6 +64,19 @@ pub struct EntryInput {
   pub notes: String,
 }
 
+/// Input data for updating an existing password entry.
+///
+/// The password field is optional - if None or empty, the existing password is kept.
+#[derive(Clone, Debug, Deserialize)]
+pub struct EntryUpdateInput {
+  pub id: String,
+  pub title: String,
+  pub username: String,
+  pub password: Option<String>,
+  pub url: String,
+  pub notes: String,
+}
+
 /// Public representation of a password entry sent to the frontend.
 ///
 /// This struct intentionally excludes the `password` field to prevent
@@ -374,6 +387,43 @@ pub fn add_entry(app: AppHandle, state: State<'_, AppState>, input: EntryInput) 
 
     let last = entries.last().ok_or_else(|| "failed to add entry".to_string())?;
     Ok(EntryPublic::from(last))
+  })
+}
+
+#[tauri::command]
+pub fn update_entry(
+  app: AppHandle,
+  state: State<'_, AppState>,
+  input: EntryUpdateInput,
+) -> Result<EntryPublic, String> {
+  state.heartbeat();
+  let path = resolve_vault_path(&app, state.inner())?;
+
+  with_unlocked(state.inner(), |entries, session| {
+    let entry_idx = entries
+      .iter()
+      .position(|e| e.id == input.id)
+      .ok_or_else(|| "entry not found".to_string())?;
+
+    // Update fields
+    entries[entry_idx].title = input.title;
+    entries[entry_idx].username = input.username;
+    entries[entry_idx].url = input.url;
+    entries[entry_idx].notes = input.notes;
+
+    // Only update password if provided and non-empty
+    if let Some(new_password) = input.password {
+      if !new_password.is_empty() {
+        entries[entry_idx].password = new_password;
+      }
+    }
+
+    entries[entry_idx].touch();
+
+    vault::save_with_key(&path, entries, &session.salt, session.key_bytes())
+      .map_err(|e| format!("save: {:?}", e))?;
+
+    Ok(EntryPublic::from(&entries[entry_idx]))
   })
 }
 

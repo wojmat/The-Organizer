@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { save, open } from "@tauri-apps/plugin-dialog";
   import EntryModal from "./EntryModal.svelte";
   import EntryRow from "./EntryRow.svelte";
   import {
@@ -10,15 +11,17 @@
     exportVault,
     getEntries,
     heartbeat,
-    importVault
+    importVault,
+    updateEntry
   } from "../lib/api";
   import { entries, setError } from "../lib/stores";
-  import type { EntryInput, EntryPublic } from "../lib/api";
+  import type { EntryInput, EntryPublic, EntryUpdateInput } from "../lib/api";
 
   export let onHeartbeat: () => void;
   export let onLocked: () => void;
 
   let showModal = false;
+  let editingEntry: EntryPublic | null = null;
   let busy = false;
   let toast: string | null = null;
   let q = "";
@@ -52,7 +55,8 @@
   });
 
   function filterList(list: EntryPublic[]) {
-    const qq = q.trim().toLowerCase();
+    if (!list || list.length === 0) return [];
+    const qq = (q ?? "").trim().toLowerCase();
     if (!qq) return list;
 
     return list.filter((e) => {
@@ -65,6 +69,17 @@
     });
   }
 
+  function handleSearchKeydown(event: KeyboardEvent) {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      onHeartbeat();
+      if (!q.trim()) {
+        q = "";
+        entries.update(e => [...e]);
+      }
+    }
+  }
+
   $: visible = filterList($entries);
 
   async function doCreate(input: EntryInput) {
@@ -74,6 +89,22 @@
       await addEntry(input);
       await refresh();
       showToast("Saved.");
+    } catch (e) {
+      setError((e as Error).message ?? String(e));
+    } finally {
+      busy = false;
+      heartbeat().catch(() => {});
+    }
+  }
+
+  async function doUpdate(input: EntryUpdateInput) {
+    busy = true;
+    try {
+      onHeartbeat();
+      await updateEntry(input);
+      await refresh();
+      showToast("Updated.");
+      editingEntry = null;
     } catch (e) {
       setError((e as Error).message ?? String(e));
     } finally {
@@ -198,6 +229,36 @@
       heartbeat().catch(() => {});
     }
   }
+
+  async function browseExportPath() {
+    try {
+      const selected = await save({
+        filters: [{ name: "Vault Backup", extensions: ["vault"] }],
+        defaultPath: "backup.vault"
+      });
+      if (selected) {
+        exportPath = selected;
+        onHeartbeat();
+      }
+    } catch (e) {
+      setError((e as Error).message ?? String(e));
+    }
+  }
+
+  async function browseImportPath() {
+    try {
+      const selected = await open({
+        filters: [{ name: "Vault Backup", extensions: ["vault"] }],
+        multiple: false
+      });
+      if (selected && typeof selected === "string") {
+        importPath = selected;
+        onHeartbeat();
+      }
+    } catch (e) {
+      setError((e as Error).message ?? String(e));
+    }
+  }
 </script>
 
 <div class="space-y-4">
@@ -220,6 +281,7 @@
         placeholder={$entries.length === 0 ? "Search (add an entry first)" : "Search..."}
         bind:value={q}
         on:input={() => onHeartbeat()}
+        on:keydown={handleSearchKeydown}
         disabled={$entries.length === 0}
       />
       <button
@@ -262,6 +324,7 @@
               expandedId = expandedId === e.id ? null : e.id;
             }}
             onCopy={() => doCopy(e.id)}
+            onModify={() => { editingEntry = e; }}
             onDelete={() => doDelete(e.id)}
           />
         {/each}
@@ -322,11 +385,21 @@
           <div class="mt-2 space-y-2">
             <div>
               <div class="mb-1 text-xs text-neutral-400">Export file path</div>
-              <input
-                class="w-full rounded-xl border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm outline-none focus:border-neutral-600"
-                placeholder="/path/to/backup.vault"
-                bind:value={exportPath}
-              />
+              <div class="flex gap-2">
+                <input
+                  class="flex-1 rounded-xl border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm outline-none focus:border-neutral-600"
+                  placeholder="/path/to/backup.vault"
+                  bind:value={exportPath}
+                />
+                <button
+                  class="rounded-xl border border-neutral-800 px-3 py-2 text-sm hover:bg-neutral-900 disabled:opacity-50"
+                  on:click={browseExportPath}
+                  disabled={busy}
+                  type="button"
+                >
+                  Browse
+                </button>
+              </div>
             </div>
             <button
               class="rounded-xl border border-neutral-800 px-3 py-2 text-sm text-neutral-100 hover:bg-neutral-900 disabled:opacity-50"
@@ -343,11 +416,21 @@
           <div class="mt-2 space-y-2">
             <div>
               <div class="mb-1 text-xs text-neutral-400">Backup file path</div>
-              <input
-                class="w-full rounded-xl border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm outline-none focus:border-neutral-600"
-                placeholder="/path/to/backup.vault"
-                bind:value={importPath}
-              />
+              <div class="flex gap-2">
+                <input
+                  class="flex-1 rounded-xl border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm outline-none focus:border-neutral-600"
+                  placeholder="/path/to/backup.vault"
+                  bind:value={importPath}
+                />
+                <button
+                  class="rounded-xl border border-neutral-800 px-3 py-2 text-sm hover:bg-neutral-900 disabled:opacity-50"
+                  on:click={browseImportPath}
+                  disabled={busy}
+                  type="button"
+                >
+                  Browse
+                </button>
+              </div>
             </div>
             <div>
               <div class="mb-1 text-xs text-neutral-400">Backup master password</div>
@@ -378,5 +461,15 @@
       showModal = false;
     }}
     onCreate={doCreate}
+  />
+{/if}
+
+{#if editingEntry}
+  <EntryModal
+    existingEntry={editingEntry}
+    onCancel={() => {
+      editingEntry = null;
+    }}
+    onUpdate={doUpdate}
   />
 {/if}

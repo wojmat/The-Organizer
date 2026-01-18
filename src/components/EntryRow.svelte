@@ -7,6 +7,7 @@
 
   export let onToggle: () => void;
   export let onCopy: () => void | Promise<void>;
+  export let onModify: () => void | Promise<void>;
   export let onDelete: () => void | Promise<void>;
   export let onHeartbeat: () => void;
 
@@ -55,7 +56,7 @@
 
           <!-- Hover tooltip -->
           <div
-            class="pointer-events-none absolute right-0 top-8 z-10 hidden w-96 max-w-[70vw] rounded-xl border border-neutral-800 bg-neutral-950 p-3 text-xs text-neutral-200 shadow group-hover:block"
+            class="pointer-events-none absolute right-0 top-full mt-2 z-10 hidden w-96 max-w-[70vw] rounded-xl border border-neutral-800 bg-neutral-950 p-3 text-xs text-neutral-200 shadow-lg group-hover:block"
           >
             <div class="mb-1 text-neutral-400">Notes</div>
             <div class="max-h-40 overflow-auto whitespace-pre-wrap">{entry.notes}</div>
@@ -72,6 +73,17 @@
         disabled={busy}
       >
         Copy
+      </button>
+
+      <button
+        class="rounded-xl border border-neutral-800 px-3 py-1.5 text-sm hover:bg-neutral-900 disabled:opacity-50"
+        on:click={() => {
+          onHeartbeat();
+          onModify();
+        }}
+        disabled={busy}
+      >
+        Modify
       </button>
 
       <button
