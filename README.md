@@ -3,7 +3,7 @@
 A **local, zero-knowledge encrypted password manager** built as a secure desktop application.
 
 **Version**: 0.1.0
-**License**: MIT (see [LICENSE](LICENSE))
+**License**: MIT (see `LICENSE`)
 **Status**: Early-access for personal use (single-device, offline-first)
 
 ---
@@ -166,8 +166,8 @@ To use a stored password:
 Paths can vary by OS configuration. The app resolves the data directory at runtime.
 
 **Vault File Format**:
-```
-[1 byte version][32 bytes salt][24 bytes nonce][encrypted data + auth tag]
+```text
+[4 bytes magic "TORG"][1 byte version][32 bytes salt][24 bytes nonce][encrypted data + auth tag]
 ```
 
 **What's encrypted**: All entry data (titles, usernames, passwords, URLs, notes)

@@ -11,12 +11,16 @@
   export let onDelete: () => void | Promise<void>;
   export let onHeartbeat: () => void;
 
+  function hasText(value: string | null | undefined) {
+    return (value ?? "").trim().length > 0;
+  }
+
   function hasNotes(e: EntryPublic) {
-    return (e.notes ?? "").trim().length > 0;
+    return hasText(e.notes);
   }
 
   function hasUrl(e: EntryPublic) {
-    return (e.url ?? "").trim().length > 0;
+    return hasText(e.url);
   }
 </script>
 

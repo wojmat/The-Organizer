@@ -9,6 +9,10 @@
   let confirmPassword = "";
   let busy = false;
 
+  function toErrorMessage(error: unknown) {
+    return error instanceof Error ? error.message : String(error);
+  }
+
   function validate(): string | null {
     if (!masterPassword) return "Enter a master password.";
     if (masterPassword.length < 10) return "Use at least 10 characters.";
@@ -30,11 +34,9 @@
       const list = await getEntries();
       entries.set(list);
 
-      masterPassword = "";
-      confirmPassword = "";
       await onDone();
     } catch (e) {
-      setError((e as Error).message ?? String(e));
+      setError(toErrorMessage(e));
     } finally {
       busy = false;
       // Best-effort clear

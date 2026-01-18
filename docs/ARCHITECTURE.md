@@ -27,6 +27,7 @@ The frontend never receives decrypted passwords from the backend. Clipboard copy
 - Derives the encryption key using Argon2id.
 - Encrypts/decrypts vault contents with XChaCha20-Poly1305.
 - Stores unlocked entries and the derived key in memory while the session is active.
+- Caches the resolved vault path so all commands write to the same location.
 - Enforces lockout after repeated failed unlock attempts.
 - Clears sensitive memory on lock (best-effort via `zeroize`).
 - Re-encrypts the vault for master password changes and encrypted backup import/export.
@@ -36,14 +37,14 @@ The frontend never receives decrypted passwords from the backend. Clipboard copy
 The vault is stored as `vault.dat` in the app data directory.
 
 ```
-[1 byte version][32 bytes salt][24 bytes nonce][ciphertext + auth tag]
+[4 bytes magic "TORG"][1 byte version][32 bytes salt][24 bytes nonce][ciphertext + auth tag]
 ```
 
-The loader supports a legacy format without the version byte for backward compatibility.
+The loader supports legacy formats without the magic header (including the pre-version format).
 
 ## Session and Auto-Lock
 
-When the user interacts with the UI, the frontend sends a heartbeat to the backend. The backend records the last interaction time and a background task checks for inactivity:
+When the user interacts with the UI (and on a short interval), the frontend sends a heartbeat to the backend. The backend records the last interaction time and a background task checks for inactivity:
 
 - **Poll interval**: every 10 seconds
 - **Timeout**: 5 minutes

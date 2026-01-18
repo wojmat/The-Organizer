@@ -20,13 +20,21 @@ export interface EntryInput {
   notes: string;
 }
 
+function isErrorWithMessage(value: unknown): value is { message: unknown } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "message" in value
+  );
+}
+
 function asStringError(e: unknown): string {
   // Normalize any thrown value into a stable string for UI messaging.
   let raw: string;
   if (typeof e === "string") {
     raw = e;
-  } else if (e && typeof e === "object" && "message" in e) {
-    raw = String((e as any).message);
+  } else if (isErrorWithMessage(e)) {
+    raw = String(e.message);
   } else {
     try {
       raw = JSON.stringify(e);
@@ -37,83 +45,70 @@ function asStringError(e: unknown): string {
   return friendlyError(raw);
 }
 
+async function invokeCommand<T = void>(
+  command: string,
+  args?: Record<string, unknown>
+): Promise<T> {
+  try {
+    return await invoke<T>(command, args);
+  } catch (e) {
+    throw new Error(asStringError(e));
+  }
+}
+
+function aliasPasswordArgs(value: string, camelKey: string, snakeKey: string) {
+  return {
+    [camelKey]: value,
+    [snakeKey]: value
+  };
+}
+
 export async function heartbeat(): Promise<void> {
-  await invoke("heartbeat");
+  await invokeCommand("heartbeat");
 }
 
 export async function lockVault(): Promise<void> {
-  await invoke("lock_vault");
+  await invokeCommand("lock_vault");
 }
 
-/*
-Tauri arg key mapping can be confusing across versions/templates.
-Your runtime error shows Tauri expects: masterPassword (camelCase).
-To be robust, we send BOTH keys. Tauri will use the one it recognizes.
-*/
+// Tauri arg key mapping varies across templates, so we send both aliases.
 export async function createVault(masterPassword: string): Promise<void> {
-  try {
-    await invoke("create_vault", {
-      masterPassword,
-      master_password: masterPassword
-    });
-  } catch (e) {
-    throw new Error(asStringError(e));
-  }
+  await invokeCommand(
+    "create_vault",
+    aliasPasswordArgs(masterPassword, "masterPassword", "master_password")
+  );
 }
 
 export async function unlockVault(masterPassword: string): Promise<void> {
-  try {
-    await invoke("unlock_vault", {
-      masterPassword,
-      master_password: masterPassword
-    });
-  } catch (e) {
-    throw new Error(asStringError(e));
-  }
+  await invokeCommand(
+    "unlock_vault",
+    aliasPasswordArgs(masterPassword, "masterPassword", "master_password")
+  );
 }
 
 export async function changeMasterPassword(
   currentPassword: string,
   newPassword: string
 ): Promise<void> {
-  try {
-    await invoke("change_master_password", {
-      currentPassword,
-      current_password: currentPassword,
-      newPassword,
-      new_password: newPassword
-    });
-  } catch (e) {
-    throw new Error(asStringError(e));
-  }
+  await invokeCommand("change_master_password", {
+    ...aliasPasswordArgs(currentPassword, "currentPassword", "current_password"),
+    ...aliasPasswordArgs(newPassword, "newPassword", "new_password")
+  });
 }
 
 export async function exportVault(path: string): Promise<void> {
-  try {
-    await invoke("export_vault", { path });
-  } catch (e) {
-    throw new Error(asStringError(e));
-  }
+  await invokeCommand("export_vault", { path });
 }
 
 export async function importVault(path: string, masterPassword: string): Promise<void> {
-  try {
-    await invoke("import_vault", {
-      path,
-      masterPassword,
-      master_password: masterPassword
-    });
-  } catch (e) {
-    throw new Error(asStringError(e));
-  }
+  await invokeCommand("import_vault", {
+    path,
+    ...aliasPasswordArgs(masterPassword, "masterPassword", "master_password")
+  });
 }
 
 export async function getEntries(): Promise<EntryPublic[]> {
-  try {
-    return await invoke<EntryPublic[]>("get_entries");
-  } catch (e) {
-    throw new Error(asStringError(e));
-  }
+  return await invokeCommand<EntryPublic[]>("get_entries");
 }
 
 export interface EntryUpdateInput {
@@ -126,33 +121,17 @@ export interface EntryUpdateInput {
 }
 
 export async function addEntry(input: EntryInput): Promise<EntryPublic> {
-  try {
-    return await invoke<EntryPublic>("add_entry", { input });
-  } catch (e) {
-    throw new Error(asStringError(e));
-  }
+  return await invokeCommand<EntryPublic>("add_entry", { input });
 }
 
 export async function updateEntry(input: EntryUpdateInput): Promise<EntryPublic> {
-  try {
-    return await invoke<EntryPublic>("update_entry", { input });
-  } catch (e) {
-    throw new Error(asStringError(e));
-  }
+  return await invokeCommand<EntryPublic>("update_entry", { input });
 }
 
 export async function deleteEntry(id: string): Promise<void> {
-  try {
-    await invoke("delete_entry", { id });
-  } catch (e) {
-    throw new Error(asStringError(e));
-  }
+  await invokeCommand("delete_entry", { id });
 }
 
 export async function copySecret(id: string): Promise<void> {
-  try {
-    await invoke("copy_secret", { id });
-  } catch (e) {
-    throw new Error(asStringError(e));
-  }
+  await invokeCommand("copy_secret", { id });
 }

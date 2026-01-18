@@ -19,6 +19,10 @@
   let busy = false;
   let localError: string | null = null;
 
+  function toErrorMessage(error: unknown) {
+    return error instanceof Error ? error.message : String(error);
+  }
+
   $: passwordStrength = password ? calculateStrength(password) : null;
   $: strengthLabel = passwordStrength ? passwordStrength : "—";
   $: strengthTone =
@@ -52,7 +56,7 @@
     try {
       password = generatePassword();
     } catch (e) {
-      localError = (e as Error).message;
+      localError = toErrorMessage(e);
     }
   }
 
@@ -89,8 +93,7 @@
       reset();
       onCancel();
     } catch (e) {
-      localError = (e as Error).message ?? String(e);
-      password = "";
+      localError = toErrorMessage(e);
     } finally {
       busy = false;
       password = "";

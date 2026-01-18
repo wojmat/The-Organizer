@@ -25,31 +25,17 @@ export const DEFAULT_OPTIONS: PasswordOptions = {
   symbols: true
 };
 
+type CharsetKey = keyof typeof CHAR_SETS;
+
 /**
  * Generates a cryptographically secure random password.
  * @param options Password generation options
  * @returns Generated password string
  */
 export function generatePassword(options: PasswordOptions = DEFAULT_OPTIONS): string {
-  let charset = "";
-  const requiredChars: string[] = [];
-
-  if (options.uppercase) {
-    charset += CHAR_SETS.uppercase;
-    requiredChars.push(getRandomChar(CHAR_SETS.uppercase));
-  }
-  if (options.lowercase) {
-    charset += CHAR_SETS.lowercase;
-    requiredChars.push(getRandomChar(CHAR_SETS.lowercase));
-  }
-  if (options.numbers) {
-    charset += CHAR_SETS.numbers;
-    requiredChars.push(getRandomChar(CHAR_SETS.numbers));
-  }
-  if (options.symbols) {
-    charset += CHAR_SETS.symbols;
-    requiredChars.push(getRandomChar(CHAR_SETS.symbols));
-  }
+  const enabledSets = getEnabledCharsets(options);
+  const charset = enabledSets.map((key) => CHAR_SETS[key]).join("");
+  const requiredChars = enabledSets.map((key) => getRandomChar(CHAR_SETS[key]));
 
   if (charset.length === 0) {
     throw new Error("At least one character type must be selected");
@@ -62,9 +48,7 @@ export function generatePassword(options: PasswordOptions = DEFAULT_OPTIONS): st
   const remainingLength = options.length - requiredChars.length;
   const randomChars: string[] = [];
 
-  const randomValues = new Uint32Array(remainingLength);
-  crypto.getRandomValues(randomValues);
-
+  const randomValues = getRandomValues(remainingLength);
   for (let i = 0; i < remainingLength; i++) {
     randomChars.push(charset[randomValues[i] % charset.length]);
   }
@@ -73,13 +57,27 @@ export function generatePassword(options: PasswordOptions = DEFAULT_OPTIONS): st
   return shuffleArray(allChars).join("");
 }
 
+function getEnabledCharsets(options: PasswordOptions): CharsetKey[] {
+  const enabled: CharsetKey[] = [];
+  if (options.uppercase) enabled.push("uppercase");
+  if (options.lowercase) enabled.push("lowercase");
+  if (options.numbers) enabled.push("numbers");
+  if (options.symbols) enabled.push("symbols");
+  return enabled;
+}
+
 /**
  * Gets a random character from the given charset.
  */
 function getRandomChar(charset: string): string {
-  const randomValue = new Uint32Array(1);
-  crypto.getRandomValues(randomValue);
-  return charset[randomValue[0] % charset.length];
+  const randomValue = getRandomValues(1)[0];
+  return charset[randomValue % charset.length];
+}
+
+function getRandomValues(size: number): Uint32Array {
+  const randomValues = new Uint32Array(size);
+  crypto.getRandomValues(randomValues);
+  return randomValues;
 }
 
 /**
@@ -87,8 +85,7 @@ function getRandomChar(charset: string): string {
  */
 function shuffleArray<T>(array: T[]): T[] {
   const shuffled = [...array];
-  const randomValues = new Uint32Array(shuffled.length);
-  crypto.getRandomValues(randomValues);
+  const randomValues = getRandomValues(shuffled.length);
 
   for (let i = shuffled.length - 1; i > 0; i--) {
     const j = randomValues[i] % (i + 1);

@@ -8,7 +8,7 @@ interface ErrorMapping {
   message: string;
 }
 
-const ERROR_MAP: ErrorMapping[] = [
+const ERROR_MAP: ReadonlyArray<ErrorMapping> = [
   // Password/authentication errors
   { pattern: /load:.*Crypto/i, message: "Incorrect password. Please try again." },
   { pattern: /current master password is incorrect/i, message: "Current password is incorrect. Please try again." },
@@ -48,19 +48,18 @@ const ERROR_MAP: ErrorMapping[] = [
   { pattern: /path is required/i, message: "Please enter a file path." },
 ];
 
+const FALLBACK_MESSAGE = "An unexpected error occurred. Please try again.";
+
 /**
  * Converts a raw technical error message to a user-friendly message.
  * @param rawError The raw error string from the backend
  * @returns A user-friendly error message
  */
 export function friendlyError(rawError: string): string {
-  for (const { pattern, message } of ERROR_MAP) {
-    if (pattern.test(rawError)) {
-      return message;
-    }
-  }
+  const match = ERROR_MAP.find(({ pattern }) => pattern.test(rawError));
+  if (match) return match.message;
 
   // Fallback: log the original error for debugging and return a generic message
   console.error("Unmapped error:", rawError);
-  return "An unexpected error occurred. Please try again.";
+  return FALLBACK_MESSAGE;
 }

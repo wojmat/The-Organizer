@@ -150,7 +150,7 @@ Collision risk: Negligible (2^-192 probability even after 2^96 operations)
 
 **Zeroization**:
 - All sensitive data (keys, passwords, plaintext) is explicitly overwritten with zeros before deallocation
-- **Implementation**: Zeroize crate (`zeroize = "1"`)
+- **Implementation**: `zeroize` crate (`zeroize = "1"`)
 - **Applied to**:
   - Master password (wrapped in `Zeroizing<String>`)
   - Derived keys (`Zeroizing<[u8; 32]>`)
@@ -184,7 +184,7 @@ let master = Zeroizing::new(master_password);
 - **Threshold**: 5 failed attempts
 - **Cooldown**: 30 seconds
 - **Reset**: Counter cleared on successful unlock
-- **State**: Tracked in `FailedAttemptTracker` (in-memory, lost on app restart)
+- **State**: Tracked in `FailedAttemptTracker` (in-memory, resets on app restart)
 
 ### Vault Format Versioning
 
@@ -192,12 +192,12 @@ let master = Zeroizing::new(master_password);
 
 **Format**:
 ```
-[1 byte version][32 bytes salt][24 bytes nonce][ciphertext + 16-byte auth tag]
+[4 bytes magic "TORG"][1 byte version][32 bytes salt][24 bytes nonce][ciphertext + 16-byte auth tag]
 ```
 
 **Backward Compatibility**:
-- Loader detects version byte vs. legacy format (no version)
-- Legacy format supported (offsets adjusted for missing version byte)
+- Loader detects the magic header, then falls back to legacy versioned and pre-version formats
+- Legacy formats are supported (offsets adjusted for missing headers)
 - Saves always use latest version
 
 ### Master Password Rotation

@@ -8,6 +8,10 @@
   let masterPassword = "";
   let busy = false;
 
+  function toErrorMessage(error: unknown) {
+    return error instanceof Error ? error.message : String(error);
+  }
+
   async function submit() {
     setError(null);
 
@@ -23,10 +27,9 @@
       const list = await getEntries();
       entries.set(list);
 
-      masterPassword = "";
       await onDone();
     } catch (e) {
-      setError((e as Error).message ?? String(e));
+      setError(toErrorMessage(e));
     } finally {
       busy = false;
       // Best-effort clear

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy, onMount } from "svelte";
+  import { onMount } from "svelte";
   import Login from "./components/Login.svelte";
   import Setup from "./components/Setup.svelte";
   import Dashboard from "./components/Dashboard.svelte";
@@ -32,7 +32,7 @@
       isLocked.set(false);
       view.set("dashboard");
       setError(null);
-    } catch (e) {
+    } catch {
       // If locked, stay on login unless user switches.
       isLocked.set(true);
       if (get(view) === "dashboard") view.set("login");
@@ -40,6 +40,7 @@
   }
 
   let intervalId: number | null = null;
+  let refreshIntervalId: number | null = null;
 
   onMount(() => {
     // Best-effort: see if we are already unlocked (normally not).
@@ -53,18 +54,20 @@
 
     // Periodic heartbeat (also updates last_interaction).
     intervalId = window.setInterval(() => beat(), 30_000);
+    // Periodic backend check to detect auto-lock and update UI.
+    refreshIntervalId = window.setInterval(() => {
+      if (get(view) === "dashboard") {
+        refreshEntriesOrLock();
+      }
+    }, 15_000);
 
     return () => {
       window.removeEventListener("mousemove", handler);
       window.removeEventListener("keydown", handler);
       window.removeEventListener("mousedown", handler);
       if (intervalId !== null) window.clearInterval(intervalId);
+      if (refreshIntervalId !== null) window.clearInterval(refreshIntervalId);
     };
-  });
-
-  onDestroy(() => {
-    // Ensure cleanup in case the component is ever destroyed.
-    if (intervalId !== null) window.clearInterval(intervalId);
   });
 
   async function onLogout() {

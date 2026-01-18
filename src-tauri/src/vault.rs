@@ -24,6 +24,8 @@ use std::io;
 use std::path::Path;
 use zeroize::Zeroize;
 
+const VAULT_MAGIC: &[u8; 4] = b"TORG";
+
 /// Errors that can occur during vault operations.
 #[derive(Debug)]
 pub enum VaultError {
@@ -100,7 +102,7 @@ pub fn derive_key(master_password: &str, salt: &[u8; SALT_LEN]) -> Result<[u8; 3
 }
 
 /// Saves the vault with the current format version.
-/// File format: [1B version][32B salt][24B nonce][ciphertext+tag]
+/// File format: [4B magic][1B version][32B salt][24B nonce][ciphertext+tag]
 pub fn save_with_key(
   path: &Path,
   entries: &[Entry],
@@ -121,8 +123,9 @@ pub fn save_with_key(
 
   plaintext.zeroize();
 
-  // New format: [version][salt][nonce][ciphertext]
-  let mut out = Vec::with_capacity(1 + SALT_LEN + NONCE_LEN + ciphertext.len());
+  // New format: [magic][version][salt][nonce][ciphertext]
+  let mut out = Vec::with_capacity(4 + 1 + SALT_LEN + NONCE_LEN + ciphertext.len());
+  out.extend_from_slice(VAULT_MAGIC);
   out.push(VAULT_FORMAT_VERSION);
   out.extend_from_slice(salt);
   out.extend_from_slice(&nonce);
@@ -132,9 +135,10 @@ pub fn save_with_key(
   Ok(())
 }
 
-/// Loads the vault, supporting both versioned (v1+) and legacy (v0) formats.
-/// Versioned format: [1B version][32B salt][24B nonce][ciphertext+tag]
-/// Legacy format:    [32B salt][24B nonce][ciphertext+tag]
+/// Loads the vault, supporting magic versioned (v1+), legacy versioned (v1), and legacy (v0) formats.
+/// Magic format:   [4B magic][1B version][32B salt][24B nonce][ciphertext+tag]
+/// Versioned:      [1B version][32B salt][24B nonce][ciphertext+tag]
+/// Legacy format:  [32B salt][24B nonce][ciphertext+tag]
 pub fn load_with_password(
   path: &Path,
   master_password: &str,
@@ -147,15 +151,18 @@ pub fn load_with_password(
     return Err(VaultError::Format("vault file too small".to_string()));
   }
 
-  // Try to detect version byte (v1+ starts with 0x01, legacy starts with random salt)
-  let (_version, offset) = if bytes[0] == VAULT_FORMAT_VERSION {
-    // Versioned format detected
+  // Try to detect magic header, then legacy version byte, then fallback to raw salt.
+  let (_version, offset) = if bytes.len() >= 5 && bytes[..4] == VAULT_MAGIC[..] {
+    if bytes.len() < 4 + 1 + SALT_LEN + NONCE_LEN {
+      return Err(VaultError::Format("versioned vault file too small".to_string()));
+    }
+    (bytes[4], 5)
+  } else if bytes[0] == VAULT_FORMAT_VERSION {
     if bytes.len() < 1 + SALT_LEN + NONCE_LEN {
       return Err(VaultError::Format("versioned vault file too small".to_string()));
     }
     (bytes[0], 1)
   } else {
-    // Legacy format (no version byte)
     (0u8, 0)
   };
 
@@ -252,6 +259,38 @@ mod tests {
 
     let res = load_with_password(&path, "pw2");
     assert!(res.is_err());
+
+    let _ = std::fs::remove_file(&path);
+  }
+
+  #[test]
+  fn legacy_v0_compatibility_ignores_version_byte_collision() {
+    let path = temp_file_path("legacy-v0");
+    let _ = std::fs::remove_file(&path);
+
+    let password = "v0-compat";
+    let mut salt = [0u8; SALT_LEN];
+    salt[0] = VAULT_FORMAT_VERSION;
+
+    let key = derive_key(password, &salt).expect("kdf");
+    let entries: Vec<Entry> = Vec::new();
+
+    let nonce = [0u8; NONCE_LEN];
+    let cipher = XChaCha20Poly1305::new(Key::from_slice(&key));
+    let plaintext = serde_json::to_vec(&entries).expect("json");
+    let ciphertext = cipher
+      .encrypt(XNonce::from_slice(&nonce), plaintext.as_ref())
+      .expect("encrypt");
+
+    let mut out = Vec::with_capacity(SALT_LEN + NONCE_LEN + ciphertext.len());
+    out.extend_from_slice(&salt);
+    out.extend_from_slice(&nonce);
+    out.extend_from_slice(&ciphertext);
+    fs::write(&path, out).expect("write");
+
+    let loaded = load_with_password(&path, password).expect("load");
+    assert_eq!(loaded.0.len(), 0);
+    assert_eq!(loaded.1, salt);
 
     let _ = std::fs::remove_file(&path);
   }

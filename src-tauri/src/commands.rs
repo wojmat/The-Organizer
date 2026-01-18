@@ -9,7 +9,7 @@
 //! # Security Notes
 //!
 //! - Master passwords are wrapped in `Zeroizing<String>` for secure memory handling
-//! - Entry passwords are never sent to the frontend (only IDs for clipboard operations)
+//! - Entry passwords are never sent to the frontend (only entry IDs for clipboard operations)
 //! - The vault key is stored in `VaultSession` and cleared on lock
 //! - All mutex access follows lock order: session → entries (prevents deadlocks)
 
@@ -19,6 +19,7 @@ use arboard::Clipboard;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
+use std::sync::{Mutex, MutexGuard};
 use std::thread;
 use std::time::Duration;
 use tauri::{AppHandle, Manager, State};
@@ -50,6 +51,13 @@ fn resolve_vault_path(app: &AppHandle, state: &AppState) -> Result<PathBuf, Stri
   }
 
   Ok(path)
+}
+
+/// Locks a mutex and maps poisoning into a consistent error message.
+fn lock_state<T>(mutex: &Mutex<T>, label: &str) -> Result<MutexGuard<'_, T>, String> {
+  mutex
+    .lock()
+    .map_err(|_| format!("{label} mutex poisoned"))
 }
 
 /// Input data for creating a new password entry.
@@ -121,16 +129,10 @@ fn with_unlocked<R>(
   state: &AppState,
   f: impl FnOnce(&mut Vec<Entry>, &VaultSession) -> Result<R, String>,
 ) -> Result<R, String> {
-  let session_guard = state
-    .session
-    .lock()
-    .map_err(|_| "session mutex poisoned".to_string())?;
+  let session_guard = lock_state(state.session.as_ref(), "session")?;
   let session = session_guard.as_ref().ok_or_else(|| "vault is locked".to_string())?;
 
-  let mut entries_guard = state
-    .entries
-    .lock()
-    .map_err(|_| "entries mutex poisoned".to_string())?;
+  let mut entries_guard = lock_state(state.entries.as_ref(), "entries")?;
   let entries = entries_guard.as_mut().ok_or_else(|| "vault is locked".to_string())?;
 
   f(entries, session)
@@ -165,11 +167,11 @@ pub fn create_vault(app: AppHandle, state: State<'_, AppState>, master_password:
 
   // Lock order: session then entries.
   {
-    let mut s = state.session.lock().map_err(|_| "session mutex poisoned".to_string())?;
+    let mut s = lock_state(state.session.as_ref(), "session")?;
     *s = Some(VaultSession::new(salt, key));
   }
   {
-    let mut e = state.entries.lock().map_err(|_| "entries mutex poisoned".to_string())?;
+    let mut e = lock_state(state.entries.as_ref(), "entries")?;
     *e = Some(entries);
   }
 
@@ -191,16 +193,10 @@ pub fn change_master_password(
 
   let path = resolve_vault_path(&app, state.inner())?;
 
-  let mut session_guard = state
-    .session
-    .lock()
-    .map_err(|_| "session mutex poisoned".to_string())?;
+  let mut session_guard = lock_state(state.session.as_ref(), "session")?;
   let session = session_guard.as_mut().ok_or_else(|| "vault is locked".to_string())?;
 
-  let entries_guard = state
-    .entries
-    .lock()
-    .map_err(|_| "entries mutex poisoned".to_string())?;
+  let entries_guard = lock_state(state.entries.as_ref(), "entries")?;
   let entries = entries_guard.as_ref().ok_or_else(|| "vault is locked".to_string())?;
 
   let mut derived = vault::derive_key(current.as_str(), &session.salt)
@@ -228,10 +224,7 @@ pub fn change_master_password(
 pub fn unlock_vault(app: AppHandle, state: State<'_, AppState>, master_password: String) -> Result<(), String> {
   // Check rate limiting before attempting unlock
   {
-    let mut tracker = state
-      .failed_attempts
-      .lock()
-      .map_err(|_| "rate limit mutex poisoned".to_string())?;
+    let mut tracker = lock_state(state.failed_attempts.as_ref(), "rate limit")?;
     if let Some(remaining_secs) = tracker.check_lockout() {
       return Err(format!(
         "Too many failed attempts. Please wait {} seconds before trying again.",
@@ -254,17 +247,17 @@ pub fn unlock_vault(app: AppHandle, state: State<'_, AppState>, master_password:
     Ok((entries, salt, key)) => {
       // Successful unlock - reset failed attempt counter
       {
-        let mut tracker = state.failed_attempts.lock().map_err(|_| "rate limit mutex poisoned".to_string())?;
+        let mut tracker = lock_state(state.failed_attempts.as_ref(), "rate limit")?;
         tracker.reset();
       }
 
       // Lock order: session then entries.
       {
-        let mut s = state.session.lock().map_err(|_| "session mutex poisoned".to_string())?;
+        let mut s = lock_state(state.session.as_ref(), "session")?;
         *s = Some(VaultSession::new(salt, key));
       }
       {
-        let mut e = state.entries.lock().map_err(|_| "entries mutex poisoned".to_string())?;
+        let mut e = lock_state(state.entries.as_ref(), "entries")?;
         *e = Some(entries);
       }
 
@@ -274,7 +267,7 @@ pub fn unlock_vault(app: AppHandle, state: State<'_, AppState>, master_password:
     Err(e) => {
       // Failed unlock - record attempt
       let lockout_msg = {
-        let mut tracker = state.failed_attempts.lock().map_err(|_| "rate limit mutex poisoned".to_string())?;
+        let mut tracker = lock_state(state.failed_attempts.as_ref(), "rate limit")?;
         tracker.record_failure().map(|duration| {
           format!(
             " Too many failed attempts. Account locked for {} seconds.",
@@ -342,17 +335,11 @@ pub fn import_vault(
   vault::save_with_key(&vault_path, &entries, &new_salt, &new_key).map_err(|e| format!("save: {:?}", e))?;
 
   {
-    let mut s = state
-      .session
-      .lock()
-      .map_err(|_| "session mutex poisoned".to_string())?;
+    let mut s = lock_state(state.session.as_ref(), "session")?;
     *s = Some(VaultSession::new(new_salt, new_key));
   }
   {
-    let mut e = state
-      .entries
-      .lock()
-      .map_err(|_| "entries mutex poisoned".to_string())?;
+    let mut e = lock_state(state.entries.as_ref(), "entries")?;
     *e = Some(entries);
   }
 
@@ -363,10 +350,7 @@ pub fn import_vault(
 pub fn get_entries(state: State<'_, AppState>) -> Result<Vec<EntryPublic>, String> {
   state.heartbeat();
 
-  let entries_guard = state
-    .entries
-    .lock()
-    .map_err(|_| "entries mutex poisoned".to_string())?;
+  let entries_guard = lock_state(state.entries.as_ref(), "entries")?;
 
   let entries = entries_guard.as_ref().ok_or_else(|| "vault is locked".to_string())?;
   Ok(entries.iter().map(EntryPublic::from).collect())
@@ -453,11 +437,8 @@ pub fn copy_secret(state: State<'_, AppState>, id: String) -> Result<(), String>
   state.heartbeat();
 
   // Grab password while holding lock, then drop lock quickly.
-  let password = {
-    let entries_guard = state
-      .entries
-      .lock()
-      .map_err(|_| "entries mutex poisoned".to_string())?;
+  let mut password = {
+    let entries_guard = lock_state(state.entries.as_ref(), "entries")?;
 
     let entries = entries_guard.as_ref().ok_or_else(|| "vault is locked".to_string())?;
     let entry = entries.iter().find(|e| e.id == id).ok_or_else(|| "entry not found".to_string())?;
@@ -466,19 +447,18 @@ pub fn copy_secret(state: State<'_, AppState>, id: String) -> Result<(), String>
 
   let mut clipboard = Clipboard::new().map_err(|e| format!("clipboard init failed: {e}"))?;
   clipboard
-    .set_text(password.clone())
+    .set_text(password.as_str())
     .map_err(|e| format!("clipboard set failed: {e}"))?;
+  password.zeroize();
 
   // Clear clipboard after 15 seconds for improved security.
   // Note: If the app crashes before this thread runs, the password will remain in the clipboard.
   // This is a known limitation of cross-platform clipboard management.
-  thread::spawn(move || {
+  thread::spawn(|| {
     thread::sleep(Duration::from_secs(15));
     if let Ok(mut cb) = Clipboard::new() {
       let _ = cb.set_text("".to_string());
     }
-    let mut p = password;
-    p.zeroize();
   });
 
   Ok(())

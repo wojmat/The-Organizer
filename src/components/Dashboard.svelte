@@ -44,6 +44,24 @@
 
   const interactionStats = new Map<string, InteractionStats>();
 
+  function toErrorMessage(error: unknown) {
+    return error instanceof Error ? error.message : String(error);
+  }
+
+  async function runWithBusy(task: () => Promise<void>) {
+    if (busy) return;
+    busy = true;
+    try {
+      onHeartbeat();
+      await task();
+    } catch (e) {
+      setError(toErrorMessage(e));
+    } finally {
+      busy = false;
+      heartbeat().catch(() => {});
+    }
+  }
+
   function showToast(msg: string) {
     toast = msg;
     window.setTimeout(() => {
@@ -140,77 +158,46 @@
   $: visible = sortEntries($entries);
 
   async function doCreate(input: EntryInput) {
-    busy = true;
-    try {
-      onHeartbeat();
+    await runWithBusy(async () => {
       await addEntry(input);
       await refresh();
       recordAudit("Entry created", input.title.trim());
       showToast("Saved.");
-    } catch (e) {
-      setError((e as Error).message ?? String(e));
-    } finally {
-      busy = false;
-      heartbeat().catch(() => {});
-    }
+    });
   }
 
   async function doUpdate(input: EntryUpdateInput) {
-    busy = true;
-    try {
-      onHeartbeat();
+    await runWithBusy(async () => {
       await updateEntry(input);
       await refresh();
       recordInteraction(input.id, "managed");
       recordAudit("Entry updated", input.title.trim());
       showToast("Updated.");
       editingEntry = null;
-    } catch (e) {
-      setError((e as Error).message ?? String(e));
-    } finally {
-      busy = false;
-      heartbeat().catch(() => {});
-    }
+    });
   }
 
   async function doDelete(id: string) {
-    if (busy) return;
-    busy = true;
-    try {
-      onHeartbeat();
+    await runWithBusy(async () => {
       await deleteEntry(id);
       if (expandedId === id) expandedId = null;
       recordInteraction(id, "managed");
       recordAudit("Entry deleted", getEntryTitle(id));
       await refresh();
       showToast("Deleted.");
-    } catch (e) {
-      setError((e as Error).message ?? String(e));
-    } finally {
-      busy = false;
-      heartbeat().catch(() => {});
-    }
+    });
   }
 
   async function doCopy(id: string) {
-    if (busy) return;
-    busy = true;
-    try {
-      onHeartbeat();
+    await runWithBusy(async () => {
       await copySecret(id);
       recordInteraction(id, "copied");
       recordAudit("Password copied", getEntryTitle(id));
-      showToast("Copied to clipboard (clears in 30s).");
-    } catch (e) {
-      setError((e as Error).message ?? String(e));
-    } finally {
-      busy = false;
-      heartbeat().catch(() => {});
-    }
+      showToast("Copied to clipboard (clears in 15s).");
+    });
   }
 
   async function doChangeMasterPassword() {
-    if (busy) return;
     if (!currentPassword) {
       setError("Enter your current master password.");
       return;
@@ -228,48 +215,33 @@
       return;
     }
 
-    busy = true;
-    try {
-      onHeartbeat();
+    await runWithBusy(async () => {
       await changeMasterPassword(currentPassword, newPassword);
-      currentPassword = "";
-      newPassword = "";
-      confirmNewPassword = "";
       recordAudit("Master password updated", "Security settings updated.");
       showToast("Master password updated.");
       setError(null);
-    } catch (e) {
-      setError((e as Error).message ?? String(e));
-    } finally {
-      busy = false;
-      heartbeat().catch(() => {});
-    }
+    });
+    currentPassword = "";
+    newPassword = "";
+    confirmNewPassword = "";
   }
 
   async function doExport() {
-    if (busy) return;
     if (!exportPath.trim()) {
       setError("Enter a file path for the encrypted backup.");
       return;
     }
 
-    busy = true;
-    try {
-      onHeartbeat();
-      await exportVault(exportPath.trim());
-      recordAudit("Backup exported", exportPath.trim());
+    const trimmedPath = exportPath.trim();
+    await runWithBusy(async () => {
+      await exportVault(trimmedPath);
+      recordAudit("Backup exported", trimmedPath);
       showToast("Encrypted backup exported.");
       setError(null);
-    } catch (e) {
-      setError((e as Error).message ?? String(e));
-    } finally {
-      busy = false;
-      heartbeat().catch(() => {});
-    }
+    });
   }
 
   async function doImport() {
-    if (busy) return;
     if (!importPath.trim()) {
       setError("Enter a backup file path to import.");
       return;
@@ -279,22 +251,17 @@
       return;
     }
 
-    busy = true;
-    try {
-      onHeartbeat();
-      await importVault(importPath.trim(), importPassword);
+    const auditPath = importPath.trim();
+    await runWithBusy(async () => {
+      await importVault(auditPath, importPassword);
       importPath = "";
       importPassword = "";
       await refresh();
-      recordAudit("Backup imported", importPath.trim());
+      recordAudit("Backup imported", auditPath);
       showToast("Encrypted backup imported.");
       setError(null);
-    } catch (e) {
-      setError((e as Error).message ?? String(e));
-    } finally {
-      busy = false;
-      heartbeat().catch(() => {});
-    }
+    });
+    importPassword = "";
   }
 
   async function browseExportPath() {
@@ -308,7 +275,7 @@
         onHeartbeat();
       }
     } catch (e) {
-      setError((e as Error).message ?? String(e));
+      setError(toErrorMessage(e));
     }
   }
 
@@ -323,7 +290,7 @@
         onHeartbeat();
       }
     } catch (e) {
-      setError((e as Error).message ?? String(e));
+      setError(toErrorMessage(e));
     }
   }
 </script>
