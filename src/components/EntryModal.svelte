@@ -188,9 +188,7 @@
       <label class="block">
         <div class="mb-1 text-sm text-neutral-300">
           Notes
-          <span class="ml-2 text-xs text-neutral-500">
-            (visible when you expand the row, and on desktop hover)
-          </span>
+          <span class="ml-2 text-xs text-neutral-500">(visible when you expand the row)</span>
         </div>
         <textarea
           class="min-h-24 w-full rounded-xl border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm outline-none focus:border-neutral-600"

@@ -34,6 +34,7 @@
   let importPath = "";
   let importPassword = "";
   let auditLog: { id: string; action: string; detail: string; at: number }[] = [];
+  let sortEpoch = 0;
 
   type InteractionStats = {
     clicked: number;
@@ -118,7 +119,7 @@
     return Number.isNaN(ts) ? 0 : ts;
   }
 
-  function sortEntries(list: EntryPublic[]) {
+  function sortEntries(list: EntryPublic[], _tick = 0) {
     const sorted = [...list];
     sorted.sort((a, b) => {
       if (sortMode === "title") {
@@ -140,10 +141,11 @@
   }
 
   function recordAudit(action: string, detail: string) {
-    auditLog = [
-      { id: crypto.randomUUID(), action, detail, at: Date.now() },
-      ...auditLog
-    ].slice(0, 8);
+    const item = { id: crypto.randomUUID(), action, detail, at: Date.now() };
+    auditLog = [item, ...auditLog].slice(0, 8);
+    window.setTimeout(() => {
+      auditLog = auditLog.filter((entry) => entry.id !== item.id);
+    }, 10_000);
   }
 
   function formatTimestamp(ts: number) {
@@ -155,13 +157,14 @@
     return list.find((entry) => entry.id === id)?.title ?? "Entry";
   }
 
-  $: visible = sortEntries($entries);
+  $: visible = sortEntries($entries, sortEpoch);
 
   async function doCreate(input: EntryInput) {
     await runWithBusy(async () => {
       await addEntry(input);
       await refresh();
       recordAudit("Entry created", input.title.trim());
+      sortEpoch += 1;
       showToast("Saved.");
     });
   }
@@ -172,6 +175,7 @@
       await refresh();
       recordInteraction(input.id, "managed");
       recordAudit("Entry updated", input.title.trim());
+      sortEpoch += 1;
       showToast("Updated.");
       editingEntry = null;
     });
@@ -184,6 +188,7 @@
       recordInteraction(id, "managed");
       recordAudit("Entry deleted", getEntryTitle(id));
       await refresh();
+      sortEpoch += 1;
       showToast("Deleted.");
     });
   }
@@ -198,6 +203,7 @@
   }
 
   async function doChangeMasterPassword() {
+    setError(null);
     if (!currentPassword) {
       setError("Enter your current master password.");
       return;
@@ -411,33 +417,36 @@
         <div class="text-sm font-semibold text-neutral-200">Change master password</div>
         <div>
           <div class="mb-1 text-xs text-neutral-400">Current master password</div>
-          <input
-            class="w-full rounded-xl border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm outline-none focus:border-neutral-600"
-            type="password"
-            autocomplete="current-password"
-            bind:value={currentPassword}
-          />
-        </div>
-        <div class="grid gap-3 sm:grid-cols-2">
-          <div>
-            <div class="mb-1 text-xs text-neutral-400">New master password</div>
             <input
               class="w-full rounded-xl border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm outline-none focus:border-neutral-600"
               type="password"
-              autocomplete="new-password"
-              bind:value={newPassword}
+              autocomplete="current-password"
+              bind:value={currentPassword}
+              on:input={() => setError(null)}
             />
           </div>
-          <div>
-            <div class="mb-1 text-xs text-neutral-400">Confirm new password</div>
-            <input
-              class="w-full rounded-xl border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm outline-none focus:border-neutral-600"
-              type="password"
-              autocomplete="new-password"
-              bind:value={confirmNewPassword}
-            />
+          <div class="grid gap-3 sm:grid-cols-2">
+            <div>
+              <div class="mb-1 text-xs text-neutral-400">New master password</div>
+              <input
+                class="w-full rounded-xl border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm outline-none focus:border-neutral-600"
+                type="password"
+                autocomplete="new-password"
+                bind:value={newPassword}
+                on:input={() => setError(null)}
+              />
+            </div>
+            <div>
+              <div class="mb-1 text-xs text-neutral-400">Confirm new password</div>
+              <input
+                class="w-full rounded-xl border border-neutral-800 bg-neutral-950 px-3 py-2 text-sm outline-none focus:border-neutral-600"
+                type="password"
+                autocomplete="new-password"
+                bind:value={confirmNewPassword}
+                on:input={() => setError(null)}
+              />
+            </div>
           </div>
-        </div>
         <button
           class="rounded-xl bg-neutral-100 px-3 py-2 text-sm font-semibold text-neutral-950 hover:bg-white disabled:opacity-50"
           on:click={doChangeMasterPassword}

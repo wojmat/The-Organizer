@@ -24,7 +24,7 @@
   }
 </script>
 
-<div class="group bg-neutral-950 px-4 py-3">
+<div class="bg-neutral-950 px-4 py-3">
   <div class="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
     <button
       type="button"
@@ -53,19 +53,13 @@
 
     <div class="flex items-center gap-2 md:flex-shrink-0">
       {#if hasNotes(entry)}
-        <div class="relative hidden md:block">
-          <span class="rounded-xl border border-neutral-800 px-2 py-1 text-xs text-neutral-400">
-            Notes
-          </span>
-
-          <!-- Hover tooltip -->
-          <div
-            class="pointer-events-none absolute right-0 top-full mt-2 z-10 hidden w-96 max-w-[70vw] rounded-xl border border-neutral-800 bg-neutral-950 p-3 text-xs text-neutral-200 shadow-lg group-hover:block"
-          >
-            <div class="mb-1 text-neutral-400">Notes</div>
-            <div class="max-h-40 overflow-auto whitespace-pre-wrap">{entry.notes}</div>
-          </div>
-        </div>
+        <button
+          class="max-w-[220px] truncate rounded-xl border border-neutral-800 px-3 py-1.5 text-sm text-neutral-300"
+          type="button"
+          title={entry.notes}
+        >
+          {entry.notes}
+        </button>
       {/if}
 
       <button
@@ -123,9 +117,6 @@
         </div>
       </div>
 
-      <div class="mt-2 text-[11px] text-neutral-500">
-        Tip: Use the "Notes" badge hover (desktop) or expand rows to view notes.
-      </div>
     </div>
   {/if}
 </div>
