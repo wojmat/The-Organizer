@@ -343,13 +343,19 @@ fn request_token(request: &Request) -> Option<String> {
   None
 }
 
+
 fn header_value(request: &Request, name: &str) -> Option<String> {
-  request
-    .headers()
-    .iter()
-    .find(|header| header.field.equiv(name))
-    .map(|header| header.value.as_str().to_string())
+  request.headers().iter().find_map(|header| {
+    // header.field.as_str() is &AsciiStr; convert to &str for std's eq_ignore_ascii_case(&str).
+    let field: &str = header.field.as_str().as_ref();
+    if field.eq_ignore_ascii_case(name) {
+      Some(header.value.as_str().to_string())
+    } else {
+      None
+    }
+  })
 }
+
 
 fn respond_auth_error(request: Request, err: AuthError) {
   let (status, message) = match err {

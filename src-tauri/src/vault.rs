@@ -215,7 +215,7 @@ pub fn load_with_password(
   };
 
   #[cfg(debug_assertions)]
-  eprintln!("Loaded vault format version: {}", version);
+  eprintln!("Loaded vault format version: {}", _version);
 
   Ok(result)
 }
